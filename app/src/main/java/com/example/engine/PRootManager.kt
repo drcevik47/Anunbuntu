@@ -188,6 +188,7 @@ class PRootManager(
         val rootfs = installer.rootfsDir
         if (!rootfs.exists()) return
 
+        // 1. Ensure usr/bin and usr/sbin binaries are executable
         val binaryFolders = listOf(
             File(rootfs, "bin"),
             File(rootfs, "usr/bin"),
@@ -199,12 +200,107 @@ class PRootManager(
         )
 
         for (folder in binaryFolders) {
-            if (folder.exists() && folder.isDirectory) {
-                folder.listFiles()?.forEach { file ->
-                    file.setExecutable(true, false)
-                    file.setReadable(true, false)
+            if (folder.exists()) {
+                folder.walkTopDown().maxDepth(3).forEach { file ->
+                    try {
+                        file.setReadable(true, false)
+                        if (!file.isDirectory) {
+                            file.setExecutable(true, false)
+                        } else {
+                            file.setExecutable(true, false) // folders need x to traverse
+                        }
+                    } catch (_: Exception) {}
                 }
             }
+        }
+
+        // 2. Ensure dynamic linker /lib/ld-linux-aarch64.so.1 exists and is accessible
+        ensureDynamicLinker()
+    }
+
+    /**
+     * Ubuntu 24.04 uses usrmerge (/bin -> usr/bin, /lib -> usr/lib).
+     * If symbolic links fail on certain Android filesystems or paths,
+     * this guarantees that /lib/ld-linux-aarch64.so.1 and /bin/bash can be resolved.
+     */
+    private fun ensureDynamicLinker() {
+        val rootfs = installer.rootfsDir
+        try {
+            // Find ld-linux-aarch64.so.1
+            val possibleLinkers = listOf(
+                File(rootfs, "usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"),
+                File(rootfs, "usr/lib/ld-linux-aarch64.so.1"),
+                File(rootfs, "lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"),
+                File(rootfs, "lib/ld-linux-aarch64.so.1")
+            )
+            val realLinker = possibleLinkers.firstOrNull { it.exists() && it.length() > 10_000 }
+
+            if (realLinker != null) {
+                realLinker.setReadable(true, false)
+                realLinker.setExecutable(true, false)
+
+                // Ensure /lib/ld-linux-aarch64.so.1 exists
+                val targetLibDir = File(rootfs, "lib").apply { if (!exists()) mkdirs() }
+                val targetLinker = File(targetLibDir, "ld-linux-aarch64.so.1")
+                if (!targetLinker.exists() || targetLinker.length() == 0L) {
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            java.nio.file.Files.createSymbolicLink(
+                                targetLinker.toPath(),
+                                java.nio.file.Paths.get("usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1")
+                            )
+                        }
+                    } catch (_: Exception) {
+                        // If symlink creation fails, copy the linker directly
+                        realLinker.copyTo(targetLinker, overwrite = true)
+                    }
+                }
+                targetLinker.setReadable(true, false)
+                targetLinker.setExecutable(true, false)
+            }
+
+            // Ensure /bin/sh and /bin/bash exist
+            val usrBinBash = File(rootfs, "usr/bin/bash")
+            val binDir = File(rootfs, "bin").apply { if (!exists()) mkdirs() }
+            val binBash = File(binDir, "bash")
+            val binSh = File(binDir, "sh")
+
+            if (usrBinBash.exists()) {
+                usrBinBash.setReadable(true, false)
+                usrBinBash.setExecutable(true, false)
+                if (!binBash.exists() || binBash.length() == 0L) {
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            java.nio.file.Files.createSymbolicLink(
+                                binBash.toPath(),
+                                java.nio.file.Paths.get("usr/bin/bash")
+                            )
+                        }
+                    } catch (_: Exception) {
+                        usrBinBash.copyTo(binBash, overwrite = true)
+                    }
+                }
+                binBash.setReadable(true, false)
+                binBash.setExecutable(true, false)
+            }
+
+            val usrBinSh = File(rootfs, "usr/bin/sh")
+            if (usrBinSh.exists() && (!binSh.exists() || binSh.length() == 0L)) {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        java.nio.file.Files.createSymbolicLink(
+                            binSh.toPath(),
+                            java.nio.file.Paths.get("usr/bin/sh")
+                        )
+                    }
+                } catch (_: Exception) {
+                    usrBinSh.copyTo(binSh, overwrite = true)
+                }
+                binSh.setReadable(true, false)
+                binSh.setExecutable(true, false)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
