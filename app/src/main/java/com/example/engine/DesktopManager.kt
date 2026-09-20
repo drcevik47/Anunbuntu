@@ -131,6 +131,13 @@ class DesktopManager(
                 grep -q "window.rfb" /usr/share/novnc/app/ui.js || sed -i 's/this\.rfb = new RFB(/window.rfb = this.rfb = new RFB(/' /usr/share/novnc/app/ui.js 2>/dev/null || true
             fi
 
+            # Configure default browser for XFCE
+            mkdir -p /etc/xdg/xfce4 2>/dev/null || true
+            if command -v epiphany-browser >/dev/null 2>&1; then
+                echo "WebBrowser=epiphany" > /etc/xdg/xfce4/helpers.rc 2>/dev/null || true
+                update-alternatives --set x-www-browser /usr/bin/epiphany-browser 2>/dev/null || true
+            fi
+
             # Start noVNC WebSocket bridge on port 6080
             if [ -d /usr/share/novnc ]; then
                 websockify --web /usr/share/novnc 6080 localhost:5901 >/dev/null 2>&1 &
@@ -164,7 +171,7 @@ class DesktopManager(
                "chmod -R 755 /usr/share/debconf /var/lib/dpkg/info 2>/dev/null; " +
                "apt-get update && " +
                "apt-get install -y --no-install-recommends " +
-               "xfce4 xfce4-terminal tigervnc-standalone-server tigervnc-common novnc websockify dbus-x11 adwaita-icon-theme"
+               "xfce4 xfce4-terminal tigervnc-standalone-server tigervnc-common novnc websockify dbus-x11 adwaita-icon-theme epiphany-browser"
     }
 
     fun markRunning(resolution: DesktopResolution = _selectedResolution.value) {

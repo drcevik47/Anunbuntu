@@ -64,6 +64,15 @@ object PredefinedPackages {
             checkBinaryPath = "usr/bin/nano",
             approxSizeMb = 3
         ),
+        UbuntuPackage(
+            id = "epiphany",
+            name = "Web Tarayıcısı (Epiphany / GNOME Web)",
+            category = PackageCategory.ESSENTIAL,
+            description = "XFCE için optimize edilmiş, hafif ve hızlı grafiksel web tarayıcısı.",
+            installPackageName = "epiphany-browser",
+            checkBinaryPath = "usr/bin/epiphany-browser",
+            approxSizeMb = 45
+        ),
 
         // Geliştirme & Diller
         UbuntuPackage(
