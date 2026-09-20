@@ -284,7 +284,8 @@ private const val TOUCH_TO_MOUSE_JS = """
                 '  overscroll-behavior: none !important;' +
                 '  overflow: hidden !important;' +
                 '  background: #181824 !important;' +
-                '} #noVNC_canvas { object-fit: contain; }';
+                '} #noVNC_canvas { object-fit: contain; }' +
+                '#noVNC_control_bar, #noVNC_control_bar_handle, .noVNC_panel { display: none !important; }';
             document.head.appendChild(st);
         }
     } catch(e) {}
