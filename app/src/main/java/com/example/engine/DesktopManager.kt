@@ -69,6 +69,9 @@ class DesktopManager(
             export LANG=C.UTF-8
             export HOME=/root
             export USER=root
+            export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+            export WEBKIT_FORCE_SANDBOX=0
+            export WEBKIT_DISABLE_COMPOSITING_MODE=1
 
             # Start XFCE4 Window Manager and Desktop Session
             if [ -x /usr/bin/startxfce4 ]; then
@@ -131,11 +134,55 @@ class DesktopManager(
                 grep -q "window.rfb" /usr/share/novnc/app/ui.js || sed -i 's/this\.rfb = new RFB(/window.rfb = this.rfb = new RFB(/' /usr/share/novnc/app/ui.js 2>/dev/null || true
             fi
 
-            # Configure default browser for XFCE
-            mkdir -p /etc/xdg/xfce4 2>/dev/null || true
-            if command -v epiphany-browser >/dev/null 2>&1; then
+            # Configure default browser for XFCE & PRoot environment
+            mkdir -p /etc/xdg/xfce4 /root/.config/xfce4 /usr/share/xfce4/helpers /root/Desktop /usr/share/applications /usr/local/bin 2>/dev/null || true
+            if [ -x /usr/bin/epiphany-browser ] || [ -x /usr/bin/epiphany ]; then
+                cat << 'EOF' > /usr/local/bin/epiphany-browser
+#!/bin/sh
+export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+export WEBKIT_FORCE_SANDBOX=0
+export WEBKIT_DISABLE_COMPOSITING_MODE=1
+if [ -x /usr/bin/epiphany-browser ]; then
+    exec /usr/bin/epiphany-browser "$@"
+else
+    exec /usr/bin/epiphany "$@"
+fi
+EOF
+                chmod +x /usr/local/bin/epiphany-browser 2>/dev/null || true
+                ln -sf /usr/local/bin/epiphany-browser /usr/local/bin/epiphany 2>/dev/null || true
+                ln -sf /usr/local/bin/epiphany-browser /usr/bin/x-www-browser 2>/dev/null || true
+
                 echo "WebBrowser=epiphany" > /etc/xdg/xfce4/helpers.rc 2>/dev/null || true
-                update-alternatives --set x-www-browser /usr/bin/epiphany-browser 2>/dev/null || true
+                echo "WebBrowser=epiphany" > /root/.config/xfce4/helpers.rc 2>/dev/null || true
+
+                cat << 'EOF' > /usr/share/xfce4/helpers/epiphany.desktop
+[Desktop Entry]
+Version=1.0
+Icon=org.gnome.Epiphany
+Type=X-XFCE-Helper
+Name=Epiphany Web Browser
+Name[tr]=Epiphany Web Tarayıcısı
+StartupNotify=true
+X-XFCE-Binaries=epiphany-browser;epiphany;
+X-XFCE-Category=WebBrowser
+X-XFCE-Commands=/usr/local/bin/epiphany-browser;
+X-XFCE-CommandsWithParameter=/usr/local/bin/epiphany-browser "%s";
+EOF
+
+                cat << 'EOF' > /root/Desktop/Epiphany.desktop
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Web Tarayıcısı (Epiphany)
+Comment=İnternette Gezinin
+Exec=/usr/local/bin/epiphany-browser %U
+Icon=org.gnome.Epiphany
+Terminal=false
+Categories=Network;WebBrowser;
+StartupNotify=true
+EOF
+                chmod +x /root/Desktop/Epiphany.desktop 2>/dev/null || true
+                cp /root/Desktop/Epiphany.desktop /usr/share/applications/epiphany-browser.desktop 2>/dev/null || true
             fi
 
             # Start noVNC WebSocket bridge on port 6080
