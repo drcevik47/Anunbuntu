@@ -114,10 +114,18 @@ class DesktopManager(
             # Start TigerVNC server on display :1 (port 5901)
             vncserver :1 -geometry $geometry -depth 24 -SecurityTypes None
 
-            # Patch noVNC to export window.UI and window.rfb globally
+            # Patch noVNC to remove the light grey background curve and border-bottom-right-radius (800px 600px)
+            if [ -f /usr/share/novnc/app/styles/base.css ]; then
+                sed -i 's/border-bottom-right-radius:[^;]*;/border-bottom-right-radius: 0px !important;/g' /usr/share/novnc/app/styles/base.css 2>/dev/null || true
+                sed -i 's/border-radius:[^;]*;/border-radius: 0px !important;/g' /usr/share/novnc/app/styles/base.css 2>/dev/null || true
+                sed -i 's/background-position:right bottom;/background-position: center; background-image: none !important;/g' /usr/share/novnc/app/styles/base.css 2>/dev/null || true
+            fi
+
+            # Patch noVNC to export window.UI and window.rfb globally and hide all default noVNC toolbars/buttons
             if [ -f /usr/share/novnc/vnc.html ]; then
                 grep -q "window.UI" /usr/share/novnc/vnc.html || sed -i 's/import UI from "\.\/app\/ui\.js";/import UI from ".\/app\/ui.js"; window.UI = UI;/' /usr/share/novnc/vnc.html 2>/dev/null || true
                 grep -q "window.UI" /usr/share/novnc/vnc.html || sed -i "s/import UI from '\.\/app\/ui\.js';/import UI from '.\/app\/ui.js'; window.UI = UI;/" /usr/share/novnc/vnc.html 2>/dev/null || true
+                grep -q "ubuntu_novnc_hide" /usr/share/novnc/vnc.html || sed -i 's/<\/head>/<style id="ubuntu_novnc_hide">#noVNC_control_bar_anchor,#noVNC_control_bar,#noVNC_control_bar_handle,.noVNC_control_bar_hint,.noVNC_hint_anchor,.noVNC_panel,#noVNC_mobile_buttons,#noVNC_transition,#noVNC_status{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;}html,body,#noVNC_container{background:#000000!important;background-image:none!important;border-radius:0px!important;-webkit-border-radius:0px!important;}<\/style><\/head>/' /usr/share/novnc/vnc.html 2>/dev/null || true
             fi
             if [ -f /usr/share/novnc/app/ui.js ]; then
                 grep -q "window.rfb" /usr/share/novnc/app/ui.js || sed -i 's/this\.rfb = new RFB(/window.rfb = this.rfb = new RFB(/' /usr/share/novnc/app/ui.js 2>/dev/null || true

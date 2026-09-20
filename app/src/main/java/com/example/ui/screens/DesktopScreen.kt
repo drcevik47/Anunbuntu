@@ -277,15 +277,41 @@ private const val TOUCH_TO_MOUSE_JS = """
         if (!document.getElementById('ubuntu_trackpad_styles')) {
             var st = document.createElement('style');
             st.id = 'ubuntu_trackpad_styles';
-            st.innerHTML = 'html, body, #noVNC_container, #noVNC_canvas {' +
+            // Strict styles to completely eliminate any noVNC web controls, hints, anchors, panels, or overlays
+            st.innerHTML = 'html, body, #noVNC_container {' +
+                '  width: 100% !important;' +
+                '  height: 100% !important;' +
+                '  margin: 0 !important;' +
+                '  padding: 0 !important;' +
                 '  touch-action: none !important;' +
                 '  user-select: none !important;' +
                 '  -webkit-user-select: none !important;' +
                 '  overscroll-behavior: none !important;' +
                 '  overflow: hidden !important;' +
-                '  background: #181824 !important;' +
-                '} #noVNC_canvas { object-fit: contain; }' +
-                '#noVNC_control_bar, #noVNC_control_bar_handle, .noVNC_panel { display: none !important; }';
+                '  background: #000000 !important;' +
+                '  background-image: none !important;' +
+                '  border-radius: 0px !important;' +
+                '  -webkit-border-radius: 0px !important;' +
+                '  border-bottom-right-radius: 0px !important;' +
+                '}' +
+                '* {' +
+                '  border-bottom-right-radius: 0px !important;' +
+                '}' +
+                '#noVNC_canvas {' +
+                '  object-fit: contain !important;' +
+                '  background: #000000 !important;' +
+                '  border-radius: 0px !important;' +
+                '}' +
+                '#noVNC_control_bar, #noVNC_control_bar_anchor, #noVNC_control_bar_handle, ' +
+                '.noVNC_control_bar_hint, .noVNC_hint_anchor, .noVNC_panel, #noVNC_transition, ' +
+                '#noVNC_status, .noVNC_button, .noVNC_scroll, #noVNC_mobile_buttons {' +
+                '  display: none !important;' +
+                '  visibility: hidden !important;' +
+                '  opacity: 0 !important;' +
+                '  pointer-events: none !important;' +
+                '  width: 0 !important;' +
+                '  height: 0 !important;' +
+                '}';
             document.head.appendChild(st);
         }
     } catch(e) {}
@@ -442,21 +468,32 @@ private const val TOUCH_TO_MOUSE_JS = """
         }, { capture: true, passive: false });
     }
 
-    // Collapse noVNC side control bar automatically
-    function collapseNoVncBar() {
+    // Permanently remove all noVNC UI clutter from the DOM tree
+    function purgeNoVncDOMElements() {
         try {
-            var bar = document.getElementById('noVNC_control_bar');
-            if (bar && bar.classList.contains('noVNC_open')) {
-                bar.classList.remove('noVNC_open');
-            }
+            var selectors = [
+                '#noVNC_control_bar_anchor',
+                '#noVNC_control_bar',
+                '#noVNC_control_bar_handle',
+                '.noVNC_control_bar_hint',
+                '.noVNC_hint_anchor',
+                '.noVNC_panel',
+                '#noVNC_mobile_buttons'
+            ];
+            selectors.forEach(function(sel) {
+                document.querySelectorAll(sel).forEach(function(el) {
+                    el.remove();
+                });
+            });
             if (window.UI && typeof window.UI.closeControlBar === 'function') {
                 window.UI.closeControlBar();
             }
         } catch(e) {}
     }
-    collapseNoVncBar();
-    setTimeout(collapseNoVncBar, 400);
-    setTimeout(collapseNoVncBar, 1200);
+    purgeNoVncDOMElements();
+    setTimeout(purgeNoVncDOMElements, 200);
+    setTimeout(purgeNoVncDOMElements, 600);
+    setTimeout(purgeNoVncDOMElements, 1500);
 
     // Initial center cursor
     setTimeout(function() {
