@@ -82,118 +82,187 @@ import com.example.ui.theme.UbuntuWarmOrange
 
 private const val TOUCH_TO_MOUSE_JS = """
 (function() {
-    if (window.__ubuntuTouchpadInstalled) {
-        console.log("[UbuntuARM64] Trackpad engine already active.");
-        if (typeof window.__ubuntuResetCursor === 'function') window.__ubuntuResetCursor();
-        return;
+    console.log("[UbuntuARM64] Initializing unified single-cursor touch & mouse engine...");
+
+    // 1. Permanently remove duplicate custom SVG cursor if previously injected
+    try {
+        var oldCursor = document.getElementById('ubuntu_trackpad_cursor');
+        if (oldCursor) oldCursor.remove();
+    } catch(e) {}
+
+    // Input Mode: true = Touchpad (relative cursor), false = Direct Touch (touchscreen tap)
+    if (typeof window.__ubuntuIsTouchpadMode === 'undefined') {
+        window.__ubuntuIsTouchpadMode = true;
     }
-    window.__ubuntuTouchpadInstalled = true;
-    console.log("[UbuntuARM64] Initializing High-Precision Full-Screen Trackpad Engine...");
+
+    window.__ubuntuSetMode = function(isTouchpad) {
+        window.__ubuntuIsTouchpadMode = !!isTouchpad;
+        console.log("[UbuntuARM64] Input mode set to:", window.__ubuntuIsTouchpadMode ? "Touchpad" : "Direct Touch");
+    };
 
     function getCanvas() {
         return document.getElementById('noVNC_canvas') || document.querySelector('canvas');
     }
 
+    var cachedRfb = null;
     function getRfb() {
-        if (window.UI && window.UI.rfb) return window.UI.rfb;
-        if (window.rfb) return window.rfb;
-        return null;
+        if (cachedRfb && cachedRfb._rfbConnectionState === 'connected') return cachedRfb;
+        if (window.rfb) { cachedRfb = window.rfb; return cachedRfb; }
+        if (window.UI && window.UI.rfb) { cachedRfb = window.UI.rfb; return cachedRfb; }
+        return cachedRfb;
     }
+
+    // Dynamic import to expose UI and rfb from noVNC ES6 module
+    async function loadUiModule() {
+        try {
+            if (!window.UI || !window.rfb) {
+                var mod = await import('./app/ui.js');
+                if (mod && mod.default) {
+                    window.UI = mod.default;
+                    if (window.UI.rfb) {
+                        window.rfb = window.UI.rfb;
+                        cachedRfb = window.UI.rfb;
+                    }
+                }
+            }
+        } catch(e) {
+            console.log("[UbuntuARM64] Note on ui module import:", e);
+        }
+    }
+    loadUiModule();
+    setInterval(loadUiModule, 1500);
 
     function getFbSize() {
         var rfb = getRfb();
         var canvas = getCanvas();
-        var w = (rfb && rfb._fbWidth) || (canvas && canvas.width) || 1280;
-        var h = (rfb && rfb._fbHeight) || (canvas && canvas.height) || 720;
+        var w = (rfb && (rfb._fbWidth || rfb.fbWidth)) || (canvas && canvas.width) || 1280;
+        var h = (rfb && (rfb._fbHeight || rfb.fbHeight)) || (canvas && canvas.height) || 720;
         return { w: w, h: h };
     }
 
-    // Virtual cursor in remote desktop coordinates
+    // Cursor position in remote desktop coordinates
     var curX = 640;
     var curY = 360;
 
-    function sendPointer(x, y, mask) {
-        var rfb = getRfb();
-        if (!rfb) return;
+    function dispatchCanvasPointer(canvas, type, clientX, clientY, button, buttons) {
+        if (!canvas) return;
         try {
-            var rx = Math.round(x);
-            var ry = Math.round(y);
-            if (typeof rfb.sendPointerEvent === 'function') {
-                rfb.sendPointerEvent(rx, ry, mask);
-            } else if (typeof rfb._handleMouseMove === 'function') {
-                rfb._handleMouseMove(rx, ry);
-                if (typeof rfb._handleMouseButton === 'function') {
-                    rfb._handleMouseButton(rx, ry, mask > 0 ? 1 : 0, mask);
-                }
+            if (window.PointerEvent) {
+                var pType = type;
+                if (type === 'mousemove') pType = 'pointermove';
+                else if (type === 'mousedown') pType = 'pointerdown';
+                else if (type === 'mouseup') pType = 'pointerup';
+
+                var pe = new PointerEvent(pType, {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window,
+                    clientX: clientX,
+                    clientY: clientY,
+                    button: button || 0,
+                    buttons: buttons || 0,
+                    pointerId: 1,
+                    pointerType: 'mouse',
+                    isPrimary: true
+                });
+                canvas.dispatchEvent(pe);
             }
-        } catch(e) {
-            console.warn("[UbuntuARM64] sendPointer error:", e);
+            var me = new MouseEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                clientX: clientX,
+                clientY: clientY,
+                button: button || 0,
+                buttons: buttons || 0
+            });
+            canvas.dispatchEvent(me);
+        } catch(e) {}
+    }
+
+    function sendPointer(x, y, mask, button) {
+        var rx = Math.round(x);
+        var ry = Math.round(y);
+        var rfb = getRfb();
+
+        // 1. Send via RFB protocol if available
+        if (rfb) {
+            try {
+                if (typeof rfb.sendPointerEvent === 'function') {
+                    rfb.sendPointerEvent(rx, ry, mask);
+                } else if (typeof rfb._sendPointerEvent === 'function') {
+                    rfb._sendPointerEvent(rx, ry, mask);
+                } else if (typeof rfb._handleMouseMove === 'function') {
+                    rfb._handleMouseMove(rx, ry);
+                    if (typeof rfb._handleMouseButton === 'function') {
+                        rfb._handleMouseButton(rx, ry, mask > 0 ? 1 : 0, mask);
+                    }
+                }
+            } catch(e) {
+                console.warn("[UbuntuARM64] sendPointer RFB error:", e);
+            }
+        }
+
+        // 2. Also dispatch DOM pointer events directly to the canvas
+        var canvas = getCanvas();
+        if (canvas) {
+            var rect = canvas.getBoundingClientRect();
+            var sz = getFbSize();
+            if (sz.w > 0 && sz.h > 0 && rect.width > 0 && rect.height > 0) {
+                var clientX = rect.left + (rx / sz.w) * rect.width;
+                var clientY = rect.top + (ry / sz.h) * rect.height;
+                var domType = 'mousemove';
+                var domButtons = 0;
+                var domBtn = button || 0;
+                if (mask > 0) {
+                    domButtons = (mask & 4) ? 2 : ((mask & 2) ? 4 : 1);
+                    domType = 'mousedown';
+                }
+                dispatchCanvasPointer(canvas, domType, clientX, clientY, domBtn, domButtons);
+            }
         }
     }
 
-    // Sleek, high-contrast visual cursor for 0-latency feedback
-    var cursorEl = document.getElementById('ubuntu_trackpad_cursor');
-    if (!cursorEl) {
-        cursorEl = document.createElement('div');
-        cursorEl.id = 'ubuntu_trackpad_cursor';
-        cursorEl.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.85)); display: block;"><path d="M3 2l10 16-3.8-1-2.4 5.3-2.6-1.2 2.4-5.2L3 17V2z" fill="#E95420" stroke="#FFFFFF" stroke-width="1.3"/></svg>';
-        cursorEl.style.position = 'fixed';
-        cursorEl.style.pointerEvents = 'none';
-        cursorEl.style.zIndex = '999999';
-        cursorEl.style.transform = 'translate(-2px, -2px)';
-        cursorEl.style.transition = 'transform 0.1s ease';
-        document.body.appendChild(cursorEl);
-    }
-
-    function updateCursorVisual() {
-        var canvas = getCanvas();
-        if (!canvas || !cursorEl) return;
-        var rect = canvas.getBoundingClientRect();
-        var sz = getFbSize();
-        if (sz.w <= 0 || sz.h <= 0 || rect.width <= 0) return;
-        var screenX = rect.left + (curX / sz.w) * rect.width;
-        var screenY = rect.top + (curY / sz.h) * rect.height;
-        cursorEl.style.left = screenX + 'px';
-        cursorEl.style.top = screenY + 'px';
-    }
-
-    window.__ubuntuResetCursor = function() {
-        var sz = getFbSize();
-        curX = Math.round(sz.w / 2);
-        curY = Math.round(sz.h / 2);
-        sendPointer(curX, curY, 0);
-        updateCursorVisual();
-    };
-
-    // Public click API for toolbar buttons
     window.__ubuntuClick = function(button) {
         var mask = (button === 2) ? 4 : (button === 1 ? 2 : 1);
-        sendPointer(curX, curY, mask);
-        if (cursorEl) {
-            cursorEl.style.transform = 'translate(-2px, -2px) scale(0.85)';
-        }
+        sendPointer(curX, curY, mask, button);
         setTimeout(function() {
-            sendPointer(curX, curY, 0);
-            if (cursorEl) cursorEl.style.transform = 'translate(-2px, -2px) scale(1.0)';
-        }, 75);
+            sendPointer(curX, curY, 0, button);
+            var canvas = getCanvas();
+            if (canvas) {
+                var rect = canvas.getBoundingClientRect();
+                var sz = getFbSize();
+                var clientX = rect.left + (curX / sz.w) * rect.width;
+                var clientY = rect.top + (curY / sz.h) * rect.height;
+                dispatchCanvasPointer(canvas, 'mouseup', clientX, clientY, button, 0);
+                dispatchCanvasPointer(canvas, 'click', clientX, clientY, button, 0);
+            }
+        }, 80);
     };
 
     window.__ubuntuDoubleClick = function() {
         window.__ubuntuClick(0);
         setTimeout(function() {
             window.__ubuntuClick(0);
-        }, 110);
+        }, 120);
     };
 
     window.__ubuntuScroll = function(direction) {
         var mask = direction < 0 ? 8 : 16;
-        sendPointer(curX, curY, mask);
+        sendPointer(curX, curY, mask, 0);
         setTimeout(function() {
-            sendPointer(curX, curY, 0);
-        }, 50);
+            sendPointer(curX, curY, 0, 0);
+        }, 60);
     };
 
-    // Trackpad gesture state
+    window.__ubuntuResetCursor = function() {
+        var sz = getFbSize();
+        curX = Math.round(sz.w / 2);
+        curY = Math.round(sz.h / 2);
+        sendPointer(curX, curY, 0, 0);
+    };
+
+    // Touch gesture state
     var trackingTouchId = null;
     var prevX = 0, prevY = 0;
     var touchStartTime = 0;
@@ -203,15 +272,7 @@ private const val TOUCH_TO_MOUSE_JS = """
     var isDragHolding = false;
     var twoFingerPrevY = 0;
 
-    // Silence conflicting native touch gestures from noVNC
-    function neutralizeNoVncGestures() {
-        var rfb = getRfb();
-        if (rfb && rfb._gesture) {
-            try { rfb._gesture = null; } catch(e) {}
-        }
-    }
-
-    // Apply strict touch styles to page container
+    // Strict styles to prevent browser pan/zoom from stealing touch gestures
     try {
         if (!document.getElementById('ubuntu_trackpad_styles')) {
             var st = document.createElement('style');
@@ -228,151 +289,157 @@ private const val TOUCH_TO_MOUSE_JS = """
         }
     } catch(e) {}
 
-    // TOUCH START
-    window.addEventListener('touchstart', function(e) {
-        neutralizeNoVncGestures();
+    // Attach touch listeners once
+    if (!window.__ubuntuTouchHandlersAttached) {
+        window.__ubuntuTouchHandlersAttached = true;
 
-        // 2-finger scroll
-        if (e.touches.length === 2) {
-            clearTimeout(longPressTimer);
-            twoFingerPrevY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-            e.preventDefault();
-            e.stopPropagation();
-            return;
-        }
-
-        if (e.touches.length === 1) {
-            var t = e.touches[0];
-            trackingTouchId = t.identifier;
-            prevX = t.clientX;
-            prevY = t.clientY;
-            touchStartTime = Date.now();
-            totalMoved = 0;
-
-            // Double-tap detection -> Drag & Drop lock
-            var now = Date.now();
-            if (now - lastTapTime < 290) {
-                isDragHolding = true;
-                sendPointer(curX, curY, 1);
-                if (cursorEl) cursorEl.style.transform = 'translate(-2px, -2px) scale(1.3)';
+        window.addEventListener('touchstart', function(e) {
+            // 2-finger scroll
+            if (e.touches.length === 2) {
+                clearTimeout(longPressTimer);
+                twoFingerPrevY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                e.preventDefault();
+                e.stopPropagation();
+                return;
             }
 
-            // Long-press detection (500ms still -> Right Click)
-            clearTimeout(longPressTimer);
-            longPressTimer = setTimeout(function() {
-                if (totalMoved < 7 && trackingTouchId !== null && !isDragHolding) {
-                    sendPointer(curX, curY, 4);
-                    setTimeout(function() {
-                        sendPointer(curX, curY, 0);
-                    }, 80);
-                    if (cursorEl) {
-                        cursorEl.style.transform = 'translate(-2px, -2px) scale(1.4)';
-                        setTimeout(function() { cursorEl.style.transform = 'translate(-2px, -2px) scale(1.0)'; }, 160);
-                    }
-                }
-            }, 500);
-
-            e.preventDefault();
-            e.stopPropagation();
-        }
-    }, { capture: true, passive: false });
-
-    // TOUCH MOVE (Relative Touchpad Motion)
-    window.addEventListener('touchmove', function(e) {
-        // Handle 2-finger scroll
-        if (e.touches.length === 2) {
-            var currentY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-            var scrollDy = currentY - twoFingerPrevY;
-            if (Math.abs(scrollDy) > 16) {
-                window.__ubuntuScroll(scrollDy > 0 ? -1 : 1);
-                twoFingerPrevY = currentY;
-            }
-            e.preventDefault();
-            e.stopPropagation();
-            return;
-        }
-
-        // 1-finger relative trackpad movement
-        for (var i = 0; i < e.changedTouches.length; i++) {
-            var t = e.changedTouches[i];
-            if (t.identifier === trackingTouchId) {
-                var dx = t.clientX - prevX;
-                var dy = t.clientY - prevY;
+            if (e.touches.length === 1) {
+                var t = e.touches[0];
+                trackingTouchId = t.identifier;
                 prevX = t.clientX;
                 prevY = t.clientY;
+                touchStartTime = Date.now();
+                totalMoved = 0;
 
-                var dist = Math.hypot(dx, dy);
-                totalMoved += dist;
-                if (totalMoved > 6) {
-                    clearTimeout(longPressTimer);
-                }
-
-                // Smooth dynamic acceleration
-                // Slow: 1.15x for pixel precision; Fast: up to 1.9x for rapid traversal
-                var accel = dist > 14 ? 1.9 : (dist > 7 ? 1.45 : 1.15);
-
-                var sz = getFbSize();
-                curX = Math.max(0, Math.min(sz.w - 1, curX + (dx * accel)));
-                curY = Math.max(0, Math.min(sz.h - 1, curY + (dy * accel)));
-
-                var mask = isDragHolding ? 1 : 0;
-                sendPointer(curX, curY, mask);
-                updateCursorVisual();
-
-                e.preventDefault();
-                e.stopPropagation();
-                break;
-            }
-        }
-    }, { capture: true, passive: false });
-
-    // TOUCH END
-    window.addEventListener('touchend', function(e) {
-        clearTimeout(longPressTimer);
-
-        for (var i = 0; i < e.changedTouches.length; i++) {
-            var t = e.changedTouches[i];
-            if (t.identifier === trackingTouchId) {
-                var duration = Date.now() - touchStartTime;
-
-                if (isDragHolding) {
-                    isDragHolding = false;
-                    sendPointer(curX, curY, 0);
-                    if (cursorEl) cursorEl.style.transform = 'translate(-2px, -2px) scale(1.0)';
-                    lastTapTime = 0;
-                } else if (totalMoved < 7 && duration < 320) {
-                    // Crisp Single Tap -> Left Click!
-                    sendPointer(curX, curY, 1);
-                    setTimeout(function() {
-                        sendPointer(curX, curY, 0);
-                    }, 65);
-
-                    if (cursorEl) {
-                        cursorEl.style.transform = 'translate(-2px, -2px) scale(0.85)';
-                        setTimeout(function() { cursorEl.style.transform = 'translate(-2px, -2px) scale(1.0)'; }, 120);
+                if (!window.__ubuntuIsTouchpadMode) {
+                    // Direct Touch Mode: point directly to touched spot
+                    var canvas = getCanvas();
+                    if (canvas) {
+                        var rect = canvas.getBoundingClientRect();
+                        var sz = getFbSize();
+                        if (sz.w > 0 && sz.h > 0 && rect.width > 0 && rect.height > 0) {
+                            curX = Math.max(0, Math.min(sz.w - 1, Math.round(((t.clientX - rect.left) / rect.width) * sz.w)));
+                            curY = Math.max(0, Math.min(sz.h - 1, Math.round(((t.clientY - rect.top) / rect.height) * sz.h)));
+                            sendPointer(curX, curY, 0, 0);
+                        }
                     }
-                    lastTapTime = Date.now();
                 } else {
-                    lastTapTime = 0;
+                    // Touchpad Mode: check double-tap for drag-and-drop
+                    var now = Date.now();
+                    if (now - lastTapTime < 290) {
+                        isDragHolding = true;
+                        sendPointer(curX, curY, 1, 0);
+                    }
                 }
 
-                trackingTouchId = null;
+                // Long-press: 480ms -> Right Click
+                clearTimeout(longPressTimer);
+                longPressTimer = setTimeout(function() {
+                    if (totalMoved < 9 && trackingTouchId !== null && !isDragHolding) {
+                        sendPointer(curX, curY, 4, 2);
+                        setTimeout(function() {
+                            sendPointer(curX, curY, 0, 2);
+                        }, 80);
+                    }
+                }, 480);
+
                 e.preventDefault();
                 e.stopPropagation();
-                break;
             }
-        }
-    }, { capture: true, passive: false });
+        }, { capture: true, passive: false });
 
-    window.addEventListener('touchcancel', function() {
-        clearTimeout(longPressTimer);
-        if (isDragHolding) {
-            isDragHolding = false;
-            sendPointer(curX, curY, 0);
-            if (cursorEl) cursorEl.style.transform = 'translate(-2px, -2px) scale(1.0)';
-        }
-        trackingTouchId = null;
-    }, { capture: true, passive: false });
+        window.addEventListener('touchmove', function(e) {
+            if (e.touches.length === 2) {
+                var currentY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                var scrollDy = currentY - twoFingerPrevY;
+                if (Math.abs(scrollDy) > 16) {
+                    window.__ubuntuScroll(scrollDy > 0 ? -1 : 1);
+                    twoFingerPrevY = currentY;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+
+            for (var i = 0; i < e.changedTouches.length; i++) {
+                var t = e.changedTouches[i];
+                if (t.identifier === trackingTouchId) {
+                    var dx = t.clientX - prevX;
+                    var dy = t.clientY - prevY;
+                    prevX = t.clientX;
+                    prevY = t.clientY;
+
+                    var dist = Math.hypot(dx, dy);
+                    totalMoved += dist;
+                    if (totalMoved > 7) {
+                        clearTimeout(longPressTimer);
+                    }
+
+                    var sz = getFbSize();
+                    if (!window.__ubuntuIsTouchpadMode) {
+                        // Direct Touch Mode: move cursor with finger
+                        var canvas = getCanvas();
+                        if (canvas) {
+                            var rect = canvas.getBoundingClientRect();
+                            if (sz.w > 0 && sz.h > 0 && rect.width > 0 && rect.height > 0) {
+                                curX = Math.max(0, Math.min(sz.w - 1, Math.round(((t.clientX - rect.left) / rect.width) * sz.w)));
+                                curY = Math.max(0, Math.min(sz.h - 1, Math.round(((t.clientY - rect.top) / rect.height) * sz.h)));
+                            }
+                        }
+                    } else {
+                        // Touchpad Mode: relative trackpad movement with smooth acceleration
+                        var accel = dist > 14 ? 1.8 : (dist > 7 ? 1.4 : 1.15);
+                        curX = Math.max(0, Math.min(sz.w - 1, curX + (dx * accel)));
+                        curY = Math.max(0, Math.min(sz.h - 1, curY + (dy * accel)));
+                    }
+
+                    var mask = isDragHolding ? 1 : 0;
+                    sendPointer(curX, curY, mask, 0);
+
+                    e.preventDefault();
+                    e.stopPropagation();
+                    break;
+                }
+            }
+        }, { capture: true, passive: false });
+
+        window.addEventListener('touchend', function(e) {
+            clearTimeout(longPressTimer);
+
+            for (var i = 0; i < e.changedTouches.length; i++) {
+                var t = e.changedTouches[i];
+                if (t.identifier === trackingTouchId) {
+                    var duration = Date.now() - touchStartTime;
+
+                    if (isDragHolding) {
+                        isDragHolding = false;
+                        sendPointer(curX, curY, 0, 0);
+                        lastTapTime = 0;
+                    } else if (totalMoved < 9 && duration < 320) {
+                        // Clean Tap -> Left Click!
+                        window.__ubuntuClick(0);
+                        lastTapTime = Date.now();
+                    } else {
+                        lastTapTime = 0;
+                    }
+
+                    trackingTouchId = null;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    break;
+                }
+            }
+        }, { capture: true, passive: false });
+
+        window.addEventListener('touchcancel', function() {
+            clearTimeout(longPressTimer);
+            if (isDragHolding) {
+                isDragHolding = false;
+                sendPointer(curX, curY, 0, 0);
+            }
+            trackingTouchId = null;
+        }, { capture: true, passive: false });
+    }
 
     // Collapse noVNC side control bar automatically
     function collapseNoVncBar() {
@@ -390,12 +457,12 @@ private const val TOUCH_TO_MOUSE_JS = """
     setTimeout(collapseNoVncBar, 400);
     setTimeout(collapseNoVncBar, 1200);
 
-    // Position cursor at center on start
+    // Initial center cursor
     setTimeout(function() {
         window.__ubuntuResetCursor();
     }, 600);
 
-    console.log("[UbuntuARM64] Trackpad Engine successfully mounted.");
+    console.log("[UbuntuARM64] Unified single cursor engine active.");
 })();
 """
 
@@ -418,6 +485,7 @@ fun DesktopScreen(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var showToolbar by remember { mutableStateOf(true) }
     var isPageLoading by remember { mutableStateOf(true) }
+    var isTouchpadMode by remember { mutableStateOf(true) }
 
     if (installState !is InstallState.Installed) {
         Column(
@@ -491,6 +559,7 @@ fun DesktopScreen(
                                     super.onPageFinished(view, url)
                                     isPageLoading = false
                                     view?.evaluateJavascript(TOUCH_TO_MOUSE_JS, null)
+                                    view?.evaluateJavascript("if (window.__ubuntuSetMode) window.__ubuntuSetMode($isTouchpadMode);", null)
                                 }
 
                                 override fun onReceivedError(
@@ -576,25 +645,31 @@ fun DesktopScreen(
                                 fontWeight = FontWeight.Bold
                             )
 
-                            // Touchpad Mode Badge
+                            // Touchpad / Direct Touch Mode Toggle Badge
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = UbuntuOrange.copy(alpha = 0.25f),
-                                modifier = Modifier.padding(horizontal = 2.dp)
+                                color = if (isTouchpadMode) UbuntuOrange.copy(alpha = 0.25f) else Color(0xFF26A69A).copy(alpha = 0.25f),
+                                modifier = Modifier
+                                    .padding(horizontal = 2.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable {
+                                        isTouchpadMode = !isTouchpadMode
+                                        webViewRef?.evaluateJavascript("if (window.__ubuntuSetMode) window.__ubuntuSetMode($isTouchpadMode);", null)
+                                    }
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Mouse,
-                                        contentDescription = null,
-                                        tint = UbuntuOrange,
+                                        imageVector = if (isTouchpadMode) Icons.Default.Mouse else Icons.Default.TouchApp,
+                                        contentDescription = if (isTouchpadMode) "Touchpad Modu" else "Dokunmatik Mod",
+                                        tint = if (isTouchpadMode) UbuntuOrange else Color(0xFF80CBC4),
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "Touchpad",
+                                        text = if (isTouchpadMode) "Touchpad" else "Dokunmatik",
                                         color = Color.White,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium

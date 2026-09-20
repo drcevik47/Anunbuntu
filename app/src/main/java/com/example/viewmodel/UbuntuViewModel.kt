@@ -54,10 +54,9 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
     private val _terminalLines = MutableStateFlow<List<TerminalOutputLine>>(emptyList())
     val terminalLines: StateFlow<List<TerminalOutputLine>> = _terminalLines.asStateFlow()
 
-    private val _isTerminalRunning = MutableStateFlow(false)
-    val isTerminalRunning: StateFlow<Boolean> = _isTerminalRunning.asStateFlow()
-
+    val isTerminalRunning: StateFlow<Boolean> = runner.isRunningFlow
     val isCommandExecuting: StateFlow<Boolean> = runner.isExecuting
+    val currentWorkingDir: StateFlow<String> = runner.currentWorkingDir
 
     private val _packageStatuses = MutableStateFlow<Map<String, PackageStatus>>(emptyMap())
     val packageStatuses: StateFlow<Map<String, PackageStatus>> = _packageStatuses.asStateFlow()
@@ -233,23 +232,24 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
     fun startTerminal(initialCommand: String? = null) {
         viewModelScope.launch {
             runner.startSession(viewModelScope, initialCommand)
-            _isTerminalRunning.value = runner.isRunning
         }
     }
 
     fun stopTerminal() {
         runner.stopSession()
-        _isTerminalRunning.value = false
     }
 
     fun sendCommand(command: String) {
-        if (command.isBlank()) return
+        val trimmed = command.trim()
+        if (trimmed.isBlank()) return
+        if (trimmed == "clear" || trimmed == "cls") {
+            clearTerminal()
+        }
         viewModelScope.launch {
             if (!runner.isRunning) {
-                runner.startSession(viewModelScope, command)
-                _isTerminalRunning.value = runner.isRunning
+                runner.startSession(viewModelScope, trimmed)
             } else {
-                runner.sendCommand(command)
+                runner.sendCommand(trimmed)
             }
         }
     }
@@ -306,7 +306,6 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
             val aptCmd = "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y ${pkg.installPackageName}"
             if (!runner.isRunning) {
                 runner.startSession(viewModelScope, aptCmd)
-                _isTerminalRunning.value = runner.isRunning
             } else {
                 sendCommand(aptCmd)
             }

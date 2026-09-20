@@ -114,6 +114,15 @@ class DesktopManager(
             # Start TigerVNC server on display :1 (port 5901)
             vncserver :1 -geometry $geometry -depth 24 -SecurityTypes None
 
+            # Patch noVNC to export window.UI and window.rfb globally
+            if [ -f /usr/share/novnc/vnc.html ]; then
+                grep -q "window.UI" /usr/share/novnc/vnc.html || sed -i 's/import UI from "\.\/app\/ui\.js";/import UI from ".\/app\/ui.js"; window.UI = UI;/' /usr/share/novnc/vnc.html 2>/dev/null || true
+                grep -q "window.UI" /usr/share/novnc/vnc.html || sed -i "s/import UI from '\.\/app\/ui\.js';/import UI from '.\/app\/ui.js'; window.UI = UI;/" /usr/share/novnc/vnc.html 2>/dev/null || true
+            fi
+            if [ -f /usr/share/novnc/app/ui.js ]; then
+                grep -q "window.rfb" /usr/share/novnc/app/ui.js || sed -i 's/this\.rfb = new RFB(/window.rfb = this.rfb = new RFB(/' /usr/share/novnc/app/ui.js 2>/dev/null || true
+            fi
+
             # Start noVNC WebSocket bridge on port 6080
             if [ -d /usr/share/novnc ]; then
                 websockify --web /usr/share/novnc 6080 localhost:5901 >/dev/null 2>&1 &

@@ -100,6 +100,7 @@ fun TerminalScreen(
     terminalLines: List<TerminalOutputLine>,
     isTerminalRunning: Boolean,
     isCommandExecuting: Boolean = false,
+    currentWorkingDir: String = "~",
     installState: InstallState,
     onSendCommand: (String) -> Unit,
     onSendSpecialKey: (String) -> Unit,
@@ -420,7 +421,7 @@ fun TerminalScreen(
                                     modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
                                 ) {
                                     Text(
-                                        text = "root@ubuntu-arm64:~# ",
+                                        text = "root@ubuntu-arm64:$currentWorkingDir# ",
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,

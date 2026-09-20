@@ -33,11 +33,19 @@ class UbuntuRunner(
     private val _outputFlow = MutableSharedFlow<TerminalOutputLine>(replay = 50)
     val outputFlow: SharedFlow<TerminalOutputLine> = _outputFlow.asSharedFlow()
 
-    private var _isRunning: Boolean = false
-    val isRunning: Boolean get() = _isRunning
+    private val _isRunningFlow = MutableStateFlow(false)
+    val isRunningFlow: StateFlow<Boolean> = _isRunningFlow.asStateFlow()
+    val isRunning: Boolean get() = _isRunningFlow.value
 
     private val _isExecuting = MutableStateFlow(false)
     val isExecuting: StateFlow<Boolean> = _isExecuting.asStateFlow()
+
+    private val _currentWorkingDir = MutableStateFlow("~")
+    val currentWorkingDir: StateFlow<String> = _currentWorkingDir.asStateFlow()
+
+    companion object {
+        private const val SENTINEL_PREFIX = "___UBUNTU_CMD_EOF_"
+    }
 
     private val ansiRegex = Regex("\u001B\\[[;?0-9]*[a-zA-Z]|\u001B\\([a-zA-Z]")
 
@@ -108,7 +116,7 @@ class UbuntuRunner(
         coroutineScope: CoroutineScope,
         initialCommand: String? = null
     ) = withContext(Dispatchers.IO) {
-        if (_isRunning) {
+        if (isRunning) {
             stopSession()
         }
 
@@ -187,7 +195,7 @@ class UbuntuRunner(
                 fallbackPb.start()
             }
             currentProcess = process
-            _isRunning = true
+            _isRunningFlow.value = true
 
             processWriter = BufferedWriter(OutputStreamWriter(process.outputStream))
 
@@ -216,6 +224,8 @@ class UbuntuRunner(
             for (cmd in initCommands) {
                 processWriter?.write(cmd + "\n")
             }
+            // Signal shell initialization complete
+            processWriter?.write("echo \"${SENTINEL_PREFIX}:0:/root\"\n")
             processWriter?.flush()
 
             if (!initialCommand.isNullOrBlank()) {
@@ -229,7 +239,7 @@ class UbuntuRunner(
 
                 try {
                     val exitCode = process.waitFor()
-                    _isRunning = false
+                    _isRunningFlow.value = false
                     _isExecuting.value = false
                     _outputFlow.emit(
                         TerminalOutputLine(
@@ -242,7 +252,7 @@ class UbuntuRunner(
                 }
             }
         } catch (e: Exception) {
-            _isRunning = false
+            _isRunningFlow.value = false
             _isExecuting.value = false
             _outputFlow.emit(
                 TerminalOutputLine(
@@ -265,24 +275,30 @@ class UbuntuRunner(
                 val chunk = String(buffer, 0, read)
                 for (char in chunk) {
                     if (char == '\n') {
-                        val line = cleanAnsi(lineAccumulator.toString())
+                        val rawLine = lineAccumulator.toString()
                         lineAccumulator = StringBuilder()
-                        if (line.isNotEmpty()) {
-                            _outputFlow.emit(TerminalOutputLine(text = line, type = type))
-                        }
+                        val line = cleanAnsi(rawLine).trimEnd('\r')
+                        handleParsedLine(line, type)
                     } else if (char != '\r') {
                         lineAccumulator.append(char)
                     }
                 }
 
-                // If no more bytes immediately available in stream, flush pending partial line (such as bash prompt)
+                // If no more bytes immediately available in stream, check if a prompt or partial interactive line arrived
                 if (!reader.ready() && lineAccumulator.isNotEmpty()) {
-                    val line = cleanAnsi(lineAccumulator.toString())
-                    lineAccumulator = StringBuilder()
-                    if (line.isNotEmpty()) {
+                    val rawLine = lineAccumulator.toString()
+                    val line = cleanAnsi(rawLine).trimEnd('\r')
+                    if (line.contains(SENTINEL_PREFIX)) {
+                        lineAccumulator = StringBuilder()
+                        handleParsedLine(line, type)
+                    } else if (line.isNotEmpty()) {
+                        lineAccumulator = StringBuilder()
                         _outputFlow.emit(TerminalOutputLine(text = line, type = type))
-                        // If prompt is displayed or bash is awaiting input, mark execution complete
-                        if (line.contains("#") || line.contains("$") || line.contains("root@")) {
+                        // Detect interactive prompt or question waiting for user input
+                        if (line.contains("#") || line.contains("$") || line.contains("root@") ||
+                            line.contains("[Y/n]", ignoreCase = true) || line.contains("[y/N]", ignoreCase = true) ||
+                            line.contains("password", ignoreCase = true) || line.endsWith("? ") || line.endsWith(": ")
+                        ) {
                             _isExecuting.value = false
                         }
                     }
@@ -290,8 +306,10 @@ class UbuntuRunner(
             }
 
             if (lineAccumulator.isNotEmpty()) {
-                val line = cleanAnsi(lineAccumulator.toString())
-                if (line.isNotEmpty()) {
+                val line = cleanAnsi(lineAccumulator.toString()).trimEnd('\r')
+                if (line.contains(SENTINEL_PREFIX)) {
+                    handleParsedLine(line, type)
+                } else if (line.isNotEmpty()) {
                     _outputFlow.emit(TerminalOutputLine(text = line, type = type))
                 }
             }
@@ -302,13 +320,50 @@ class UbuntuRunner(
         }
     }
 
-    private fun coroutineScopeActive(): Boolean = _isRunning
+    private suspend fun handleParsedLine(line: String, type: LineType) {
+        if (line.contains(SENTINEL_PREFIX)) {
+            _isExecuting.value = false
+
+            val before = line.substringBefore(SENTINEL_PREFIX).trim()
+            if (before.isNotEmpty()) {
+                _outputFlow.emit(TerminalOutputLine(text = before, type = type))
+            }
+
+            val after = line.substringAfter(SENTINEL_PREFIX).trim().removePrefix(":")
+            val parts = after.split(":")
+            val exitCode = parts.getOrNull(0)?.trim()?.toIntOrNull() ?: 0
+            val cwd = parts.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() } ?: "/root"
+
+            _currentWorkingDir.value = if (cwd == "/root") "~" else cwd
+
+            if (exitCode != 0) {
+                _outputFlow.emit(
+                    TerminalOutputLine(
+                        text = "[Komut $exitCode hata kodu ile sonlandı]",
+                        type = LineType.WARNING
+                    )
+                )
+            }
+        } else if (line.isNotEmpty()) {
+            _outputFlow.emit(TerminalOutputLine(text = line, type = type))
+        }
+    }
+
+    private fun coroutineScopeActive(): Boolean = _isRunningFlow.value
 
     suspend fun sendCommand(command: String) = withContext(Dispatchers.IO) {
+        val trimmed = command.trim()
+        if (trimmed.isEmpty()) return@withContext
+
         try {
             _isExecuting.value = true
-            _outputFlow.emit(TerminalOutputLine(text = "# $command", type = LineType.STDIN))
-            processWriter?.write(command + "\n")
+            _outputFlow.emit(TerminalOutputLine(text = "# $trimmed", type = LineType.STDIN))
+
+            // Append double newline and unique sentinel echo:
+            // This guarantees that even if the command doesn't output a trailing newline,
+            // the sentinel appears on its own line and signals completion along with exit code and pwd.
+            val sentinelCmd = "\n\necho \"${SENTINEL_PREFIX}:\${'$'}?:\${'$'}(pwd)\"\n"
+            processWriter?.write(trimmed + sentinelCmd)
             processWriter?.flush()
         } catch (e: Exception) {
             _isExecuting.value = false
@@ -322,40 +377,68 @@ class UbuntuRunner(
         try {
             when (key) {
                 "CTRL_C" -> {
-                    processWriter?.write("\u0003")
-                    processWriter?.flush()
+                    try {
+                        processWriter?.write("\u0003\n")
+                        processWriter?.flush()
+                    } catch (_: Exception) {}
+
+                    // Try to send SIGINT to the root process via Android kill
+                    currentProcess?.let { proc ->
+                        try {
+                            val pid = getProcessPid(proc)
+                            if (pid > 0) {
+                                Runtime.getRuntime().exec(arrayOf("/system/bin/kill", "-INT", pid.toString()))
+                            }
+                        } catch (_: Exception) {}
+                    }
+
                     _isExecuting.value = false
                     _outputFlow.emit(TerminalOutputLine(text = "^C [Komut durduruldu]", type = LineType.SYSTEM))
                 }
                 "CTRL_D" -> {
                     processWriter?.write("\u0004")
+                    processWriter?.flush()
                     _outputFlow.emit(TerminalOutputLine(text = "^D", type = LineType.SYSTEM))
                 }
                 "CTRL_Z" -> {
                     processWriter?.write("\u001A")
+                    processWriter?.flush()
                     _outputFlow.emit(TerminalOutputLine(text = "^Z", type = LineType.SYSTEM))
                 }
                 "TAB" -> {
                     processWriter?.write("\t")
+                    processWriter?.flush()
                 }
                 "ESC" -> {
                     processWriter?.write("\u001B")
+                    processWriter?.flush()
                 }
                 "UP" -> {
                     processWriter?.write("\u001B[A")
+                    processWriter?.flush()
                 }
                 "DOWN" -> {
                     processWriter?.write("\u001B[B")
+                    processWriter?.flush()
                 }
             }
-            processWriter?.flush()
         } catch (_: Exception) {
             // ignore
         }
     }
 
+    private fun getProcessPid(process: Process): Int {
+        return try {
+            val pidField = process.javaClass.getDeclaredField("pid")
+            pidField.isAccessible = true
+            pidField.getInt(process)
+        } catch (_: Exception) {
+            -1
+        }
+    }
+
     fun stopSession() {
-        _isRunning = false
+        _isRunningFlow.value = false
         _isExecuting.value = false
         readJob?.cancel()
         try {
