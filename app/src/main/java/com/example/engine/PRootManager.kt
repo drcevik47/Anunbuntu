@@ -26,17 +26,30 @@ class PRootManager(
     val binDir: File
         get() = File(context.filesDir, "bin").apply { if (!exists()) mkdirs() }
 
+    val nativeLibDir: File?
+        get() = context.applicationInfo?.nativeLibraryDir?.takeIf { it.isNotBlank() }?.let { File(it) }
+
+    val nativeProot: File?
+        get() = nativeLibDir?.let { File(it, "libproot.so") }
+
+    val nativeLoader: File?
+        get() = nativeLibDir?.let { File(it, "libloader.so") }
+
+    val nativeLoader32: File?
+        get() = nativeLibDir?.let { File(it, "libloader-m32.so") }
+
     val prootBinary: File
-        get() = File(binDir, "proot")
+        get() = nativeProot?.takeIf { it.exists() && it.length() > 50_000 } ?: File(binDir, "proot")
 
     val loaderBinary: File
-        get() = File(binDir, "loader")
+        get() = nativeLoader?.takeIf { it.exists() && it.length() > 5_000 } ?: File(binDir, "loader")
 
     val loader32Binary: File
-        get() = File(binDir, "loader-m32")
+        get() = nativeLoader32?.takeIf { it.exists() && it.length() > 2_000 } ?: File(binDir, "loader-m32")
 
     val isPRootInstalled: Boolean
-        get() = prootBinary.exists() && prootBinary.canExecute() && prootBinary.length() > 50_000
+        get() = (nativeProot?.let { it.exists() && it.length() > 50_000 } == true) ||
+                (File(binDir, "proot").exists() && File(binDir, "proot").canExecute() && File(binDir, "proot").length() > 50_000)
 
     private val isArm64: Boolean
         get() = Build.SUPPORTED_ABIS.any { 
@@ -60,6 +73,10 @@ class PRootManager(
      */
     @Synchronized
     fun ensurePRootInstalled(): Boolean {
+        if (nativeProot?.let { it.exists() && it.length() > 50_000 } == true) {
+            return true
+        }
+
         if (isPRootInstalled && loaderBinary.exists()) {
             return true
         }

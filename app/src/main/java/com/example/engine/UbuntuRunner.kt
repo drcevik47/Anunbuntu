@@ -136,8 +136,12 @@ class UbuntuRunner(
             val env = processBuilder.environment()
             env.remove("LD_PRELOAD")
             env["PROOT_TMP_DIR"] = prootTmp.absolutePath
-            env["PROOT_LOADER"] = File(binDir, "loader").absolutePath
-            env["PROOT_LOADER_32"] = File(binDir, "loader-m32").absolutePath
+            if (prootManager.loaderBinary.exists()) {
+                env["PROOT_LOADER"] = prootManager.loaderBinary.absolutePath
+            }
+            if (prootManager.loader32Binary.exists()) {
+                env["PROOT_LOADER_32"] = prootManager.loader32Binary.absolutePath
+            }
             env["HOME"] = "/root"
             env["USER"] = "root"
             env["LOGNAME"] = "root"
@@ -150,7 +154,26 @@ class UbuntuRunner(
             processBuilder.redirectErrorStream(false)
 
             val commandToRun = prootManager.buildLaunchCommand(subCommand = null)
-            val process = processBuilder.command(commandToRun).start()
+            val process = try {
+                processBuilder.command(commandToRun).start()
+            } catch (pErr: Exception) {
+                _outputFlow.emit(
+                    TerminalOutputLine(
+                        text = "Uyarı: PRoot başlatılırken hata oluştu (${pErr.localizedMessage}). Yedek Linux kabuk köprüsüne geçiliyor...\n",
+                        type = LineType.WARNING
+                    )
+                )
+                val fallbackPb = ProcessBuilder("/system/bin/sh", "-i")
+                val fEnv = fallbackPb.environment()
+                fEnv["PATH"] = "${rootfs.absolutePath}/bin:${rootfs.absolutePath}/usr/bin:/system/bin:/system/xbin"
+                fEnv["HOME"] = "${rootfs.absolutePath}/root"
+                fEnv["ROOTFS"] = rootfs.absolutePath
+                fEnv["TERM"] = "xterm-256color"
+                fEnv["LANG"] = "C.UTF-8"
+                fallbackPb.directory(rootfs)
+                fallbackPb.redirectErrorStream(false)
+                fallbackPb.start()
+            }
             currentProcess = process
             _isRunning = true
 
