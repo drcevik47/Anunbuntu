@@ -1,0 +1,44 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer accent ring -->
+    <path
+        android:strokeColor="#FFE95420"
+        android:strokeWidth="4"
+        android:fillColor="#00000000"
+        android:pathData="M54,28 A26,26 0 1,1 53.9,28" />
+
+    <!-- Three Ubuntu nodes (heads) -->
+    <!-- Top node -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,28 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+
+    <!-- Bottom-left node -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M31.5,67 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+
+    <!-- Bottom-right node -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M76.5,67 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+
+    <!-- Central terminal prompt symbol ">_" -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M46,47 L53,54 L46,61" />
+
+    <path
+        android:strokeColor="#FFE95420"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M56,61 L65,61" />
+</vector>

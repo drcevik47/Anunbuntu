@@ -1,0 +1,6 @@
+{
+  "name": "Ubuntu ARM64",
+  "description": "Download, install, and run Ubuntu ARM64 with an integrated interactive terminal without Termux or external apps.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
