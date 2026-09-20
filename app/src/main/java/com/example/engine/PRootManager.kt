@@ -8,7 +8,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.util.concurrent.TimeUnit
+import java.util.zip.ZipInputStream
 
 class PRootManager(
     private val context: Context,
@@ -27,24 +29,167 @@ class PRootManager(
     val prootBinary: File
         get() = File(binDir, "proot")
 
+    val loaderBinary: File
+        get() = File(binDir, "loader")
+
+    val loader32Binary: File
+        get() = File(binDir, "loader-m32")
+
     val isPRootInstalled: Boolean
         get() = prootBinary.exists() && prootBinary.canExecute() && prootBinary.length() > 50_000
 
+    private val isArm64: Boolean
+        get() = Build.SUPPORTED_ABIS.any { 
+            it.equals("arm64-v8a", ignoreCase = true) || it.equals("aarch64", ignoreCase = true) 
+        }
+
     /**
-     * Download URL for precompiled static aarch64 / arm64 proot binary
+     * Download URL for precompiled static Android PRoot package
      */
     private val prootDownloadUrl: String
         get() {
-            val isArm64 = Build.SUPPORTED_ABIS.any { 
-                it.equals("arm64-v8a", ignoreCase = true) || it.equals("aarch64", ignoreCase = true) 
-            }
             return if (isArm64) {
-                // Official high-compatibility static proot binary for aarch64
-                "https://raw.githubusercontent.com/termux/proot/master/src/proot"
+                "https://github.com/ahmed-alnassif/proot/releases/latest/download/proot-aarch64.zip"
             } else {
-                "https://raw.githubusercontent.com/termux/proot/master/src/proot"
+                "https://github.com/ahmed-alnassif/proot/releases/latest/download/proot-x86_64.zip"
             }
         }
+
+    /**
+     * Extracts PRoot and its loaders from APK bundled assets or downloads if needed
+     */
+    @Synchronized
+    fun ensurePRootInstalled(): Boolean {
+        if (isPRootInstalled && loaderBinary.exists()) {
+            return true
+        }
+
+        // 1. Try extracting from bundled assets first (Instant, offline, zero-fail)
+        try {
+            val assetName = if (isArm64) "proot/proot-aarch64.zip" else "proot/proot-x86_64.zip"
+            context.assets.open(assetName).use { inputStream ->
+                if (extractZipStream(inputStream)) {
+                    if (isPRootInstalled) return true
+                }
+            }
+        } catch (_: Exception) {
+            // Asset might not be present or failed, fall back
+        }
+
+        return isPRootInstalled
+    }
+
+    /**
+     * Unzips proot, loader, loader-m32 from an input stream into binDir
+     */
+    private fun extractZipStream(inputStream: InputStream): Boolean {
+        return try {
+            ZipInputStream(inputStream).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    val entryName = entry.name.substringAfterLast("/")
+                    if (entryName.isNotEmpty() && !entry.isDirectory) {
+                        val outFile = File(binDir, entryName)
+                        if (outFile.exists()) outFile.delete()
+                        FileOutputStream(outFile).use { fos ->
+                            zis.copyTo(fos)
+                        }
+                        outFile.setExecutable(true, false)
+                        outFile.setReadable(true, false)
+                    }
+                    entry = zis.nextEntry
+                }
+            }
+            prootBinary.setExecutable(true, false)
+            loaderBinary.setExecutable(true, false)
+            loader32Binary.setExecutable(true, false)
+            isPRootInstalled
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /**
+     * Downloads and prepares the PRoot package if not bundled
+     */
+    suspend fun installPRoot(
+        onProgress: (progress: Float) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        // First try local asset extraction
+        if (ensurePRootInstalled()) {
+            onProgress(1.0f)
+            return@withContext
+        }
+
+        val tempZip = File(binDir, "proot_download.tmp")
+        try {
+            onProgress(0.1f)
+            val request = Request.Builder()
+                .url(prootDownloadUrl)
+                .header("User-Agent", "UbuntuARM64-PRoot/1.0")
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val body = response.body ?: throw IllegalStateException("PRoot sunucu yanıtı boş")
+                val totalLength = body.contentLength().coerceAtLeast(1L)
+                var downloaded = 0L
+
+                body.byteStream().use { input ->
+                    FileOutputStream(tempZip).use { output ->
+                        val buffer = ByteArray(16 * 1024)
+                        var read: Int
+                        while (input.read(buffer).also { read = it } != -1) {
+                            output.write(buffer, 0, read)
+                            downloaded += read
+                            onProgress(0.1f + (downloaded.toFloat() / totalLength.toFloat()) * 0.7f)
+                        }
+                        output.flush()
+                    }
+                }
+
+                tempZip.inputStream().use {
+                    extractZipStream(it)
+                }
+                onProgress(1.0f)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            if (tempZip.exists()) tempZip.delete()
+        }
+
+        // Final verification
+        ensurePRootInstalled()
+    }
+
+    /**
+     * Recursively grants executable and read permissions to Linux binaries in rootfs
+     */
+    fun fixPermissions() {
+        val rootfs = installer.rootfsDir
+        if (!rootfs.exists()) return
+
+        val binaryFolders = listOf(
+            File(rootfs, "bin"),
+            File(rootfs, "usr/bin"),
+            File(rootfs, "sbin"),
+            File(rootfs, "usr/sbin"),
+            File(rootfs, "usr/lib/apt/methods"),
+            File(rootfs, "usr/libexec"),
+            File(rootfs, "usr/lib/dpkg")
+        )
+
+        for (folder in binaryFolders) {
+            if (folder.exists() && folder.isDirectory) {
+                folder.listFiles()?.forEach { file ->
+                    file.setExecutable(true, false)
+                    file.setReadable(true, false)
+                }
+            }
+        }
+    }
 
     /**
      * Applies essential APT, DPKG, and Daemon compatibility fixes to rootfs
@@ -64,6 +209,9 @@ class PRootManager(
                 Dir::Etc::sourcelist "/etc/apt/sources.list";
                 Acquire::Languages "none";
                 Acquire::Check-Valid-Until "false";
+                Acquire::Retries "3";
+                Acquire::http::Timeout "30";
+                Acquire::https::Timeout "30";
                 """.trimIndent() + "\n"
             )
 
@@ -88,6 +236,7 @@ class PRootManager(
                 """.trimIndent() + "\n"
             )
             policyRcD.setExecutable(true, false)
+            policyRcD.setReadable(true, false)
 
             // 4. DNS resolv.conf check & restore
             val resolvConf = File(rootfs, "etc/resolv.conf")
@@ -95,13 +244,21 @@ class PRootManager(
                 resolvConf.writeText("nameserver 8.8.8.8\nnameserver 1.1.1.1\n")
             }
 
-            // 5. Clean apt locks if previous crash occurred
-            val listsLock = File(rootfs, "var/lib/apt/lists/lock")
-            if (listsLock.exists()) listsLock.delete()
-            val dpkgLock = File(rootfs, "var/lib/dpkg/lock")
-            if (dpkgLock.exists()) dpkgLock.delete()
-            val dpkgLockFrontend = File(rootfs, "var/lib/dpkg/lock-frontend")
-            if (dpkgLockFrontend.exists()) dpkgLockFrontend.delete()
+            // 5. Clean apt/dpkg locks if previous crash occurred
+            val locks = listOf(
+                File(rootfs, "var/lib/apt/lists/lock"),
+                File(rootfs, "var/lib/dpkg/lock"),
+                File(rootfs, "var/lib/dpkg/lock-frontend"),
+                File(rootfs, "var/cache/apt/archives/lock")
+            )
+            locks.forEach { if (it.exists()) it.delete() }
+
+            // 6. Ensure required directories exist
+            File(rootfs, "tmp").apply { if (!exists()) mkdirs() }
+            File(rootfs, "dev/shm").apply { if (!exists()) mkdirs() }
+
+            // 7. Fix permissions of binaries
+            fixPermissions()
 
         } catch (e: Exception) {
             e.printStackTrace()
@@ -115,28 +272,32 @@ class PRootManager(
         val rootfs = installer.rootfsDir
         val rootfsPath = rootfs.absolutePath
 
+        ensurePRootInstalled()
         applyAptDpkgFixes()
+
+        val shell = if (File(rootfs, "bin/bash").exists()) "/bin/bash" else "/bin/sh"
 
         return if (isPRootInstalled) {
             val cmd = mutableListOf(
                 prootBinary.absolutePath,
-                "-r", rootfsPath,
+                "--link2symlink",
                 "-0", // Fake root (UID 0)
+                "-r", rootfsPath,
                 "-b", "/dev",
                 "-b", "/proc",
                 "-b", "/sys",
-                "-b", "/dev/urandom:/dev/random",
+                "-b", "$rootfsPath/tmp:/dev/shm",
                 "-w", "/root"
             )
 
             if (subCommand.isNullOrBlank()) {
-                cmd.addAll(listOf("/bin/bash", "-l"))
+                cmd.addAll(listOf(shell, "-l"))
             } else {
-                cmd.addAll(listOf("/bin/bash", "-l", "-c", subCommand))
+                cmd.addAll(listOf(shell, "-l", "-c", subCommand))
             }
             cmd
         } else {
-            // Fallback shell wrapper
+            // Extreme fallback if PRoot binary is not yet available
             if (subCommand.isNullOrBlank()) {
                 listOf("/system/bin/sh", "-i")
             } else {
@@ -144,73 +305,5 @@ class PRootManager(
             }
         }
     }
-
-    /**
-     * Downloads and prepares the PRoot binary
-     */
-    suspend fun installPRoot(
-        onProgress: (progress: Float) -> Unit
-    ) = withContext(Dispatchers.IO) {
-        val targetFile = prootBinary
-        val tempFile = File(binDir, "proot.tmp")
-
-        try {
-            // Download binary
-            val request = Request.Builder()
-                .url(prootDownloadUrl)
-                .header("User-Agent", "UbuntuARM64-PRootInstaller/1.0")
-                .build()
-
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body ?: throw IllegalStateException("PRoot sunucu yanıtı boş")
-                val totalLength = body.contentLength().coerceAtLeast(1L)
-                var downloaded = 0L
-
-                body.byteStream().use { input ->
-                    FileOutputStream(tempFile).use { output ->
-                        val buffer = ByteArray(16 * 1024)
-                        var read: Int
-                        while (input.read(buffer).also { read = it } != -1) {
-                            output.write(buffer, 0, read)
-                            downloaded += read
-                            onProgress((downloaded.toFloat() / totalLength.toFloat()).coerceIn(0f, 1f))
-                        }
-                        output.flush()
-                    }
-                }
-
-                if (targetFile.exists()) targetFile.delete()
-                tempFile.renameTo(targetFile)
-            }
-        } catch (_: Exception) {
-            // If download fails, create a lightweight runner fallback script
-            createFallbackRunner(targetFile)
-        } finally {
-            if (tempFile.exists()) tempFile.delete()
-            targetFile.setExecutable(true, false)
-            targetFile.setReadable(true, false)
-        }
-    }
-
-    private fun createFallbackRunner(file: File) {
-        val rootfs = installer.rootfsDir
-        file.writeText(
-            """
-            #!/system/bin/sh
-            # PRoot fallback container orchestrator
-            ROOTFS="${rootfs.absolutePath}"
-            export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${'$'}PATH
-            export HOME=/root
-            export USER=root
-            export TERM=xterm-256color
-            export LANG=C.UTF-8
-            export SHELL=/bin/bash
-            export TMPDIR=/tmp
-            cd "${'$'}ROOTFS/root" 2>/dev/null || cd "${'$'}ROOTFS"
-            exec /system/bin/sh "${'$'}@"
-            """.trimIndent() + "\n"
-        )
-        file.setExecutable(true, false)
-    }
 }
+

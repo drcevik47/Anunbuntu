@@ -129,6 +129,23 @@ fun TerminalScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (isTerminalRunning) {
                         IconButton(
+                            onClick = {
+                                onStopTerminal()
+                                onStartTerminal()
+                            },
+                            modifier = Modifier
+                                .size(34.dp)
+                                .testTag("restart_terminal_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Yeniden Başlat",
+                                tint = UbuntuWarmOrange,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(
                             onClick = onStopTerminal,
                             modifier = Modifier
                                 .size(34.dp)

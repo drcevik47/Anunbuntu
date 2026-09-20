@@ -121,8 +121,11 @@ class UbuntuInstaller(private val context: Context) {
                                         entryName.startsWith("usr/bin/") || 
                                         entryName.startsWith("sbin/") || 
                                         entryName.startsWith("usr/sbin/") ||
+                                        entryName.startsWith("usr/lib/apt/") ||
+                                        entryName.startsWith("usr/libexec/") ||
                                         entryName.endsWith(".sh")) {
                                         outputFile.setExecutable(true, false)
+                                        outputFile.setReadable(true, false)
                                     }
                                 }
 
@@ -155,6 +158,9 @@ class UbuntuInstaller(private val context: Context) {
 
         onConfiguring("APT ve DPKG Android sanallaştırma yamaları (sandbox baypas, unsafe-io) uygulanıyor...")
         setupAptDpkgFixes()
+
+        onConfiguring("Tüm sistem ikili dosyalarının çalıştırma izinleri doğrulanıyor...")
+        fixAllPermissions()
 
         // 3. Mark completed
         markerFile.writeText("${distro.name}\n${distro.version}\n${System.currentTimeMillis()}\n")
@@ -245,8 +251,30 @@ class UbuntuInstaller(private val context: Context) {
             val policyRcD = File(sbinDir, "policy-rc.d")
             policyRcD.writeText("#!/bin/sh\nexit 101\n")
             policyRcD.setExecutable(true, false)
+            policyRcD.setReadable(true, false)
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    fun fixAllPermissions() {
+        val binaryFolders = listOf(
+            File(rootfsDir, "bin"),
+            File(rootfsDir, "usr/bin"),
+            File(rootfsDir, "sbin"),
+            File(rootfsDir, "usr/sbin"),
+            File(rootfsDir, "usr/lib/apt/methods"),
+            File(rootfsDir, "usr/libexec"),
+            File(rootfsDir, "usr/lib/dpkg")
+        )
+
+        for (folder in binaryFolders) {
+            if (folder.exists() && folder.isDirectory) {
+                folder.listFiles()?.forEach { file ->
+                    file.setExecutable(true, false)
+                    file.setReadable(true, false)
+                }
+            }
         }
     }
 

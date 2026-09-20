@@ -13,6 +13,7 @@ import com.example.model.TerminalOutputLine
 import com.example.model.UbuntuDistro
 import com.example.model.UbuntuDistros
 import com.example.util.DeviceSystemHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,6 +68,10 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
     private var installJob: Job? = null
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            runner.prootManager.ensurePRootInstalled()
+            _isPRootReady.value = runner.prootManager.isPRootInstalled
+        }
         checkExistingInstallation()
         observeTerminalOutput()
     }
@@ -268,7 +273,7 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
     fun installPRootEngine() {
         viewModelScope.launch {
             _terminalLines.value = _terminalLines.value + TerminalOutputLine(
-                text = ">>> PRoot ARM64 Sanallaştırma Motoru İndiriliyor...",
+                text = ">>> PRoot ARM64 Sanallaştırma Motoru Hazırlanıyor...",
                 type = LineType.SYSTEM
             )
             runner.prootManager.installPRoot { progress ->
@@ -277,11 +282,11 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
             _isPRootReady.value = runner.prootManager.isPRootInstalled
             _terminalLines.value = _terminalLines.value + TerminalOutputLine(
                 text = if (runner.prootManager.isPRootInstalled) {
-                    ">>> PRoot motoru başarıyla yüklendi ve etkinleştirildi! (UID 0 root yetkisi)"
+                    ">>> PRoot ARM64 motoru başarıyla etkinleştirildi! (UID 0 root yetkisi aktif)"
                 } else {
-                    ">>> PRoot motoru hazırlandı (Yerleşik orkestrasyon devrede)."
+                    ">>> PRoot motoru hazırlanırken bir sorun oluştu."
                 },
-                type = LineType.SUCCESS
+                type = if (runner.prootManager.isPRootInstalled) LineType.SUCCESS else LineType.WARNING
             )
         }
     }
@@ -293,7 +298,12 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _activeTab.value = 2 // Switch to terminal so user can see live apt progress
             val aptCmd = "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y ${pkg.installPackageName}"
-            sendCommand(aptCmd)
+            if (!runner.isRunning) {
+                runner.startSession(viewModelScope, aptCmd)
+                _isTerminalRunning.value = runner.isRunning
+            } else {
+                sendCommand(aptCmd)
+            }
         }
     }
 

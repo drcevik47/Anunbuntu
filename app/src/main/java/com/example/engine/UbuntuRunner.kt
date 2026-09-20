@@ -111,6 +111,7 @@ class UbuntuRunner(
             return@withContext
         }
 
+        prootManager.ensurePRootInstalled()
         prootManager.applyAptDpkgFixes()
 
         val modeText = if (prootManager.isPRootInstalled) {
@@ -128,16 +129,22 @@ class UbuntuRunner(
 
         try {
             val processBuilder = ProcessBuilder()
+            val binDir = prootManager.binDir
+            val prootTmp = File(context.cacheDir, "proot_tmp").apply { if (!exists()) mkdirs() }
             
-            // Environment variables
+            // Environment variables for PRoot host and container
             val env = processBuilder.environment()
-            env["ROOTFS"] = rootfs.absolutePath
-            env["HOME"] = File(rootfs, "root").absolutePath
+            env.remove("LD_PRELOAD")
+            env["PROOT_TMP_DIR"] = prootTmp.absolutePath
+            env["PROOT_LOADER"] = File(binDir, "loader").absolutePath
+            env["PROOT_LOADER_32"] = File(binDir, "loader-m32").absolutePath
+            env["HOME"] = "/root"
             env["USER"] = "root"
+            env["LOGNAME"] = "root"
             env["TERM"] = "xterm-256color"
             env["LANG"] = "C.UTF-8"
-            env["PATH"] = "${rootfs.absolutePath}/bin:${rootfs.absolutePath}/usr/bin:/system/bin:/system/xbin"
-            env["TMPDIR"] = File(rootfs, "tmp").absolutePath
+            env["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            env["DEBIAN_FRONTEND"] = "noninteractive"
 
             processBuilder.directory(rootfs)
             processBuilder.redirectErrorStream(false)
@@ -152,17 +159,20 @@ class UbuntuRunner(
             // Initial banner
             _outputFlow.emit(
                 TerminalOutputLine(
-                    text = "Ubuntu ARM64 (Linux container on Android)\nRootFS: ${rootfs.name}\nAPT & DPKG yamaları devrede. Çıkmak için 'exit' veya Ctrl+D tuşlayın.\n",
+                    text = "Ubuntu ARM64 (Linux container on Android)\nRootFS: ${rootfs.name}\nPRoot emülasyonu & APT/DPKG yamaları devrede. Çıkmak için 'exit' veya Ctrl+D tuşlayın.\n",
                     type = LineType.SUCCESS
                 )
             )
 
-            // Setup prompt & environment inside the shell
+            // Setup prompt & environment inside the container
             val initCommands = listOf(
                 "export PS1='\\[\\033[01;32m\\]root@ubuntu-arm64\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]# '",
+                "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${'$'}PATH",
+                "export HOME=/root",
+                "export USER=root",
                 "alias ls='ls --color=auto'",
                 "alias ll='ls -alF'",
-                "cd ${rootfs.absolutePath}/root 2>/dev/null || cd ${rootfs.absolutePath}"
+                "cd /root"
             )
             for (cmd in initCommands) {
                 processWriter?.write(cmd + "\n")
