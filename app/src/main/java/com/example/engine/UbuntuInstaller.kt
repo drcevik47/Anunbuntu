@@ -116,17 +116,24 @@ class UbuntuInstaller(private val context: Context) {
                                         }
                                     }
 
-                                    // Mark binary folders executable
-                                    if (entryName.startsWith("bin/") || 
+                                    // Mark binary folders, debconf, dpkg and executable scripts
+                                    val isExecutable = (entry.mode and 0b001_001_001) != 0 ||
+                                        entryName.startsWith("bin/") || 
                                         entryName.startsWith("usr/bin/") || 
                                         entryName.startsWith("sbin/") || 
                                         entryName.startsWith("usr/sbin/") ||
                                         entryName.startsWith("usr/lib/apt/") ||
                                         entryName.startsWith("usr/libexec/") ||
-                                        entryName.endsWith(".sh")) {
+                                        entryName.startsWith("usr/lib/dpkg/") ||
+                                        entryName.startsWith("usr/share/debconf/") ||
+                                        entryName.startsWith("var/lib/dpkg/") ||
+                                        entryName.endsWith(".sh") ||
+                                        entryName.endsWith(".pl")
+
+                                    if (isExecutable) {
                                         outputFile.setExecutable(true, false)
-                                        outputFile.setReadable(true, false)
                                     }
+                                    outputFile.setReadable(true, false)
                                 }
 
                                 fileCount++
@@ -224,10 +231,23 @@ class UbuntuInstaller(private val context: Context) {
             export LC_ALL=C.UTF-8
             export SHELL=/bin/bash
             export TMPDIR=/tmp
+            export DEBIAN_FRONTEND=noninteractive
+            export DEBCONF_NONINTERACTIVE_SEEN=true
             cd /root
             """.trimIndent() + "\n"
         )
         envScript.setExecutable(true, false)
+
+        val etcEnv = File(rootfsDir, "etc/environment")
+        etcEnv.writeText(
+            """
+            PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            DEBIAN_FRONTEND="noninteractive"
+            DEBCONF_NONINTERACTIVE_SEEN="true"
+            LANG="C.UTF-8"
+            LC_ALL="C.UTF-8"
+            """.trimIndent() + "\n"
+        )
     }
 
     private fun setupAptDpkgFixes() {
@@ -240,6 +260,15 @@ class UbuntuInstaller(private val context: Context) {
                 Dir::Etc::sourcelist "/etc/apt/sources.list";
                 Acquire::Languages "none";
                 Acquire::Check-Valid-Until "false";
+                """.trimIndent() + "\n"
+            )
+
+            val debconfApt = File(aptConfDir, "00_debconf")
+            debconfApt.writeText(
+                """
+                debconf debconf/frontend select Noninteractive;
+                debconf debconf/priority select critical;
+                DPkg::Options { "--force-confdef"; "--force-confold"; };
                 """.trimIndent() + "\n"
             )
 
@@ -265,16 +294,28 @@ class UbuntuInstaller(private val context: Context) {
             File(rootfsDir, "usr/sbin"),
             File(rootfsDir, "usr/lib/apt/methods"),
             File(rootfsDir, "usr/libexec"),
-            File(rootfsDir, "usr/lib/dpkg")
+            File(rootfsDir, "usr/lib/dpkg"),
+            File(rootfsDir, "usr/share/debconf"),
+            File(rootfsDir, "var/lib/dpkg/info")
         )
 
         for (folder in binaryFolders) {
-            if (folder.exists() && folder.isDirectory) {
-                folder.listFiles()?.forEach { file ->
-                    file.setExecutable(true, false)
+            if (folder.exists()) {
+                folder.walkTopDown().maxDepth(3).forEach { file ->
                     file.setReadable(true, false)
+                    if (!file.isDirectory) {
+                        file.setExecutable(true, false)
+                    } else {
+                        file.setExecutable(true, false)
+                    }
                 }
             }
+        }
+
+        val debconfFrontend = File(rootfsDir, "usr/share/debconf/frontend")
+        if (debconfFrontend.exists()) {
+            debconfFrontend.setReadable(true, false)
+            debconfFrontend.setExecutable(true, false)
         }
     }
 

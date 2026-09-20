@@ -188,7 +188,7 @@ class PRootManager(
         val rootfs = installer.rootfsDir
         if (!rootfs.exists()) return
 
-        // 1. Ensure usr/bin and usr/sbin binaries are executable
+        // 1. Ensure usr/bin, usr/sbin, debconf, and dpkg scripts are executable
         val binaryFolders = listOf(
             File(rootfs, "bin"),
             File(rootfs, "usr/bin"),
@@ -196,7 +196,13 @@ class PRootManager(
             File(rootfs, "usr/sbin"),
             File(rootfs, "usr/lib/apt/methods"),
             File(rootfs, "usr/libexec"),
-            File(rootfs, "usr/lib/dpkg")
+            File(rootfs, "usr/lib/dpkg"),
+            File(rootfs, "usr/share/debconf"),
+            File(rootfs, "var/lib/dpkg/info"),
+            File(rootfs, "var/lib/dpkg/tmp.ci"),
+            File(rootfs, "etc/cron.daily"),
+            File(rootfs, "etc/cron.hourly"),
+            File(rootfs, "etc/network")
         )
 
         for (folder in binaryFolders) {
@@ -212,6 +218,13 @@ class PRootManager(
                     } catch (_: Exception) {}
                 }
             }
+        }
+
+        // Specific guarantee for debconf frontend
+        val debconfFrontend = File(rootfs, "usr/share/debconf/frontend")
+        if (debconfFrontend.exists()) {
+            debconfFrontend.setReadable(true, false)
+            debconfFrontend.setExecutable(true, false)
         }
 
         // 2. Ensure dynamic linker /lib/ld-linux-aarch64.so.1 exists and is accessible
@@ -366,11 +379,44 @@ class PRootManager(
             )
             locks.forEach { if (it.exists()) it.delete() }
 
-            // 6. Ensure required directories exist
+            // 6. Ensure noninteractive environment and debconf defaults
+            val etcEnv = File(rootfs, "etc/environment")
+            etcEnv.writeText(
+                """
+                PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                DEBIAN_FRONTEND="noninteractive"
+                DEBCONF_NONINTERACTIVE_SEEN="true"
+                LANG="C.UTF-8"
+                LC_ALL="C.UTF-8"
+                """.trimIndent() + "\n"
+            )
+
+            val debconfApt = File(aptConfDir, "00_debconf")
+            debconfApt.writeText(
+                """
+                // Force debconf noninteractive mode in apt
+                debconf debconf/frontend select Noninteractive;
+                debconf debconf/priority select critical;
+                DPkg::Options { "--force-confdef"; "--force-confold"; };
+                """.trimIndent() + "\n"
+            )
+
+            val profileDir = File(rootfs, "etc/profile.d").apply { if (!exists()) mkdirs() }
+            val noninteractiveScript = File(profileDir, "00_noninteractive.sh")
+            noninteractiveScript.writeText(
+                """
+                export DEBIAN_FRONTEND=noninteractive
+                export DEBCONF_NONINTERACTIVE_SEEN=true
+                """.trimIndent() + "\n"
+            )
+            noninteractiveScript.setExecutable(true, false)
+            noninteractiveScript.setReadable(true, false)
+
+            // 7. Ensure required directories exist
             File(rootfs, "tmp").apply { if (!exists()) mkdirs() }
             File(rootfs, "dev/shm").apply { if (!exists()) mkdirs() }
 
-            // 7. Fix permissions of binaries
+            // 8. Fix permissions of binaries and debconf/dpkg scripts
             fixPermissions()
 
         } catch (e: Exception) {

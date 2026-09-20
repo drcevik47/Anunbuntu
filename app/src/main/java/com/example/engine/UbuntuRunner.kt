@@ -189,12 +189,15 @@ class UbuntuRunner(
 
             // Setup prompt & environment inside the container
             val initCommands = listOf(
+                "export DEBIAN_FRONTEND=noninteractive",
+                "export DEBCONF_NONINTERACTIVE_SEEN=true",
                 "export PS1='\\[\\033[01;32m\\]root@ubuntu-arm64\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]# '",
                 "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${'$'}PATH",
                 "export HOME=/root",
                 "export USER=root",
                 "alias ls='ls --color=auto'",
                 "alias ll='ls -alF'",
+                "chmod -R 755 /usr/share/debconf /var/lib/dpkg/info 2>/dev/null",
                 "cd /root"
             )
             for (cmd in initCommands) {

@@ -193,6 +193,8 @@ fun TerminalScreen(
 
         // Quick Command Chips
         val quickCommands = listOf(
+            "chmod -R 755 /usr/share/debconf /var/lib/dpkg/info 2>/dev/null; dpkg --configure -a" to "🛠️ DPKG Onar",
+            "apt --fix-broken install -y" to "📦 Paket Düzelt",
             "cat /etc/os-release" to "OS Bilgisi",
             "uname -m" to "Mimari",
             "df -h" to "Disk",
