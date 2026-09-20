@@ -46,9 +46,10 @@ object UbuntuDistros {
         codename = "Noble Numbat",
         version = "24.04",
         downloadUrls = listOf(
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/noble/release/ubuntu-base-24.04-base-arm64.tar.gz",
             "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04-base-arm64.tar.gz",
-            "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04.1/release/ubuntu-base-24.04.1-base-arm64.tar.gz",
-            "http://mirrors.kernel.org/ubuntu-cdimage/ubuntu-base/releases/24.04/release/ubuntu-base-24.04-base-arm64.tar.gz"
+            "https://cdimage.ubuntu.com/ubuntu-base/daily/current/noble-base-arm64.tar.gz",
+            "https://mirrors.kernel.org/ubuntu-cdimage/ubuntu-base/releases/24.04/release/ubuntu-base-24.04-base-arm64.tar.gz"
         ),
         approxDownloadMb = 31,
         approxInstalledMb = 98,
@@ -62,10 +63,10 @@ object UbuntuDistros {
         codename = "Jammy Jellyfish",
         version = "22.04",
         downloadUrls = listOf(
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/jammy/release/ubuntu-base-22.04-base-arm64.tar.gz",
             "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-arm64.tar.gz",
-            "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04.2/release/ubuntu-base-22.04.2-base-arm64.tar.gz",
-            "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04.1/release/ubuntu-base-22.04.1-base-arm64.tar.gz",
-            "http://mirrors.kernel.org/ubuntu-cdimage/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-arm64.tar.gz"
+            "https://cdimage.ubuntu.com/ubuntu-base/daily/current/jammy-base-arm64.tar.gz",
+            "https://mirrors.kernel.org/ubuntu-cdimage/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-arm64.tar.gz"
         ),
         approxDownloadMb = 29,
         approxInstalledMb = 92,
