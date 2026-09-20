@@ -14,6 +14,7 @@ import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -303,14 +305,22 @@ private const val TOUCH_TO_MOUSE_JS = """
                 '  border-radius: 0px !important;' +
                 '}' +
                 '#noVNC_control_bar, #noVNC_control_bar_anchor, #noVNC_control_bar_handle, ' +
-                '.noVNC_control_bar_hint, .noVNC_hint_anchor, .noVNC_panel, #noVNC_transition, ' +
-                '#noVNC_status, .noVNC_button, .noVNC_scroll, #noVNC_mobile_buttons {' +
+                '.noVNC_control_bar_hint, .noVNC_hint_anchor, #noVNC_mobile_buttons, ' +
+                '#noVNC_transition, #noVNC_status, .noVNC_button {' +
                 '  display: none !important;' +
                 '  visibility: hidden !important;' +
                 '  opacity: 0 !important;' +
                 '  pointer-events: none !important;' +
                 '  width: 0 !important;' +
                 '  height: 0 !important;' +
+                '}' +
+                '.noVNC_panel {' +
+                '  visibility: hidden !important;' +
+                '  opacity: 0 !important;' +
+                '  pointer-events: none !important;' +
+                '  position: fixed !important;' +
+                '  left: -9999px !important;' +
+                '  top: -9999px !important;' +
                 '}';
             document.head.appendChild(st);
         }
@@ -468,32 +478,22 @@ private const val TOUCH_TO_MOUSE_JS = """
         }, { capture: true, passive: false });
     }
 
-    // Permanently remove all noVNC UI clutter from the DOM tree
-    function purgeNoVncDOMElements() {
+    // Safely close and keep noVNC control bar hidden without destroying DOM inputs
+    function collapseNoVncBar() {
         try {
-            var selectors = [
-                '#noVNC_control_bar_anchor',
-                '#noVNC_control_bar',
-                '#noVNC_control_bar_handle',
-                '.noVNC_control_bar_hint',
-                '.noVNC_hint_anchor',
-                '.noVNC_panel',
-                '#noVNC_mobile_buttons'
-            ];
-            selectors.forEach(function(sel) {
-                document.querySelectorAll(sel).forEach(function(el) {
-                    el.remove();
-                });
-            });
+            var bar = document.getElementById('noVNC_control_bar');
+            if (bar && bar.classList.contains('noVNC_open')) {
+                bar.classList.remove('noVNC_open');
+            }
             if (window.UI && typeof window.UI.closeControlBar === 'function') {
                 window.UI.closeControlBar();
             }
         } catch(e) {}
     }
-    purgeNoVncDOMElements();
-    setTimeout(purgeNoVncDOMElements, 200);
-    setTimeout(purgeNoVncDOMElements, 600);
-    setTimeout(purgeNoVncDOMElements, 1500);
+    collapseNoVncBar();
+    setTimeout(collapseNoVncBar, 200);
+    setTimeout(collapseNoVncBar, 600);
+    setTimeout(collapseNoVncBar, 1500);
 
     // Initial center cursor
     setTimeout(function() {
@@ -652,22 +652,26 @@ fun DesktopScreen(
                     }
                 }
 
-                // Top Floating Toolbar (Collapsible)
+                // Top Floating Toolbar (Collapsible & Horizontally scrollable on narrow portrait screens)
                 AnimatedVisibility(
                     visible = showToolbar,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                        .padding(horizontal = 6.dp, vertical = 6.dp)
                 ) {
+                    val toolbarScrollState = rememberScrollState()
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = Color(0xEE1E1E2E),
-                        shadowElevation = 8.dp
+                        shadowElevation = 8.dp,
+                        modifier = Modifier.widthIn(max = 700.dp)
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            modifier = Modifier
+                                .horizontalScroll(toolbarScrollState)
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Box(
                                 modifier = Modifier
@@ -678,7 +682,7 @@ fun DesktopScreen(
                             Text(
                                 text = "XFCE4",
                                 color = Color.White,
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold
                             )
@@ -697,7 +701,7 @@ fun DesktopScreen(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                                 ) {
                                     Icon(
                                         imageVector = if (isTouchpadMode) Icons.Default.Mouse else Icons.Default.TouchApp,
@@ -705,7 +709,7 @@ fun DesktopScreen(
                                         tint = if (isTouchpadMode) UbuntuOrange else Color(0xFF80CBC4),
                                         modifier = Modifier.size(13.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
                                     Text(
                                         text = if (isTouchpadMode) "Touchpad" else "Dokunmatik",
                                         color = Color.White,
@@ -720,13 +724,13 @@ fun DesktopScreen(
                                 onClick = {
                                     webViewRef?.evaluateJavascript("window.__ubuntuClick(0);", null)
                                 },
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(30.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Mouse,
                                     contentDescription = "Sol Tık",
                                     tint = Color.White,
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
 
@@ -735,13 +739,13 @@ fun DesktopScreen(
                                 onClick = {
                                     webViewRef?.evaluateJavascript("window.__ubuntuDoubleClick();", null)
                                 },
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(30.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.TouchApp,
                                     contentDescription = "Çift Tık",
                                     tint = TerminalGreen,
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
 
@@ -750,13 +754,13 @@ fun DesktopScreen(
                                 onClick = {
                                     webViewRef?.evaluateJavascript("window.__ubuntuClick(2);", null)
                                 },
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(30.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.AdsClick,
                                     contentDescription = "Sağ Tık",
                                     tint = Color(0xFF64B5F6),
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
 
@@ -767,9 +771,9 @@ fun DesktopScreen(
                                     webViewRef?.requestFocus()
                                     imm?.showSoftInput(webViewRef, InputMethodManager.SHOW_IMPLICIT)
                                 },
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(30.dp)
                             ) {
-                                Icon(Icons.Default.Keyboard, contentDescription = "Klavye", tint = UbuntuWarmOrange, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.Keyboard, contentDescription = "Klavye", tint = UbuntuWarmOrange, modifier = Modifier.size(16.dp))
                             }
 
                             // Refresh button
@@ -778,16 +782,16 @@ fun DesktopScreen(
                                     webViewRef?.reload()
                                     webViewRef?.evaluateJavascript(TOUCH_TO_MOUSE_JS, null)
                                 },
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(30.dp)
                             ) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Yenile", tint = Color.LightGray, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.Refresh, contentDescription = "Yenile", tint = Color.LightGray, modifier = Modifier.size(16.dp))
                             }
 
                             // Fullscreen toggle
                             IconButton(
                                 onClick = { onToggleFullscreen(!isFullscreen) },
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(30.dp)
                                     .clip(CircleShape)
                                     .background(if (isFullscreen) Color(0xFF4A148C) else Color.Transparent)
                             ) {
@@ -795,7 +799,7 @@ fun DesktopScreen(
                                     imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
                                     contentDescription = if (isFullscreen) "Tam Ekrandan Çık" else "Tam Ekran",
                                     tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
 
@@ -804,15 +808,15 @@ fun DesktopScreen(
                                 onClick = { showToolbar = false },
                                 modifier = Modifier.size(28.dp)
                             ) {
-                                Icon(Icons.Default.Close, contentDescription = "Araç Çubuğunu Gizle", tint = Color.Gray, modifier = Modifier.size(15.dp))
+                                Icon(Icons.Default.Close, contentDescription = "Araç Çubuğunu Gizle", tint = Color.Gray, modifier = Modifier.size(14.dp))
                             }
 
                             // Stop server
                             IconButton(
                                 onClick = onStopDesktop,
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(30.dp)
                             ) {
-                                Icon(Icons.Default.Stop, contentDescription = "Durdur", tint = Color(0xFFEF5350), modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.Stop, contentDescription = "Durdur", tint = Color(0xFFEF5350), modifier = Modifier.size(16.dp))
                             }
                         }
                     }
