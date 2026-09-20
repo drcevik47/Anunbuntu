@@ -156,10 +156,14 @@ if [ -z "\${'$'}DBUS_SESSION_BUS_ADDRESS" ] && command -v dbus-launch >/dev/null
 fi
 
 # Try launching installed browsers in order of compatibility
-if command -v epiphany-browser >/dev/null 2>&1; then
-    exec epiphany-browser "\${'$'}@"
-elif command -v epiphany >/dev/null 2>&1; then
-    exec epiphany "\${'$'}@"
+if command -v epiphany-browser >/dev/null 2>&1 || command -v epiphany >/dev/null 2>&1; then
+    BIN=${'$'}(command -v epiphany-browser || command -v epiphany)
+    "${'$'}BIN" "\${'$'}@" > /tmp/epiphany_err.log 2>&1 &
+    PID=${'$'}!
+    sleep 1.2
+    if ! kill -0 ${'$'}PID 2>/dev/null; then
+        xfce4-terminal -T "Epiphany Hatasi" -e "sh -c 'echo [UYARI] Epiphany tarayicisi acilirken kapandi!; echo --- Hata Ciktisi: ---; cat /tmp/epiphany_err.log; echo; echo =================================================; echo En hizli ve sorunsuz cozum:; echo Terminal sekmesinden NetSurf kurun:; echo apt install -y netsurf-gtk; echo =================================================; read -p \"Kapatmak icin Enter tusuna basin...\"'" 2>/dev/null || true
+    fi
 elif command -v netsurf-gtk >/dev/null 2>&1; then
     exec netsurf-gtk "\${'$'}@"
 elif command -v chromium-browser >/dev/null 2>&1; then
@@ -167,13 +171,14 @@ elif command -v chromium-browser >/dev/null 2>&1; then
 elif command -v firefox >/dev/null 2>&1; then
     exec firefox "\${'$'}@"
 else
-    zenity --info --title="Web Tarayicisi Bulunamadi" --text="Sistemde kurulu web tarayicisi bulunamadi.\nLutfen Terminalden 'apt install -y epiphany-browser netsurf-gtk' komutunu calistirin." 2>/dev/null || \
-    xmessage -center "Web tarayicisi henuz kurulu degil. Lutfen terminalden: apt install -y epiphany-browser netsurf-gtk calistirin." 2>/dev/null || true
+    xfce4-terminal -T "Tarayici Kurulumu" -e "sh -c 'echo [BILGI] Sistemde henuz kurulu bir grafiksel web tarayicisi bulunamadi.; echo Kurmak icin bu pencerede Enter tusuna basin...; read; apt-get update && apt-get install -y netsurf-gtk; echo Bitti! Artik Web Tarayicisi simgesini kullanabilirsiniz.; read -p \"Cikmak icin Enter...\"'" 2>/dev/null || true
 fi
 EOF
             chmod +x /usr/local/bin/x-browser-launcher 2>/dev/null || true
             ln -sf /usr/local/bin/x-browser-launcher /usr/local/bin/epiphany-browser 2>/dev/null || true
             ln -sf /usr/local/bin/x-browser-launcher /usr/bin/x-www-browser 2>/dev/null || true
+
+            rm -f /root/Desktop/Epiphany.desktop 2>/dev/null || true
 
             cat << 'EOF' > /root/Desktop/Browser.desktop
 [Desktop Entry]
@@ -182,20 +187,36 @@ Type=Application
 Name=Web Tarayıcısı
 Comment=İnternette Gezinin
 Exec=/usr/local/bin/x-browser-launcher %U
-Icon=org.gnome.Epiphany
+Icon=web-browser
 Terminal=false
 Categories=Network;WebBrowser;
 StartupNotify=true
 EOF
-            chmod +x /root/Desktop/Browser.desktop 2>/dev/null || true
+
+            cat << 'EOF' > /root/Desktop/Terminal.desktop
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Uçbirim (Terminal)
+Comment=Linux Komut Satırı
+Exec=xfce4-terminal
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+StartupNotify=true
+EOF
+
+            chmod 755 /root/Desktop/*.desktop 2>/dev/null || true
+            gio set /root/Desktop/Browser.desktop metadata::trusted yes 2>/dev/null || true
+            gio set /root/Desktop/Terminal.desktop metadata::trusted yes 2>/dev/null || true
             cp /root/Desktop/Browser.desktop /usr/share/applications/web-browser.desktop 2>/dev/null || true
 
             cat << 'EOF' > /usr/share/xfce4/helpers/custom-browser.desktop
 [Desktop Entry]
 Version=1.0
-Icon=org.gnome.Epiphany
+Icon=web-browser
 Type=X-XFCE-Helper
-Name=X-Browser
+Name=Web Tarayıcısı
 StartupNotify=true
 X-XFCE-Binaries=x-browser-launcher;epiphany-browser;epiphany;netsurf-gtk;chromium-browser;
 X-XFCE-Category=WebBrowser
