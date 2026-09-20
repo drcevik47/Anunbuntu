@@ -104,150 +104,184 @@ class DesktopManager(
     }
 
     /**
-     * Generates the command string to start VNC and noVNC inside Ubuntu
+     * Prepares all desktop helper scripts directly inside the RootFS
      */
-    fun getStartDesktopCommand(resolution: DesktopResolution = _selectedResolution.value): String {
-        configureVncStartup()
-        val geometry = resolution.geometry
+    fun prepareDesktopFiles(resolution: DesktopResolution = _selectedResolution.value) {
+        val rootfs = installer.rootfsDir
+        val localBin = File(rootfs, "usr/local/bin").apply { if (!exists()) mkdirs() }
+        val desktopDir = File(rootfs, "root/Desktop").apply { if (!exists()) mkdirs() }
+        val appsDir = File(rootfs, "usr/share/applications").apply { if (!exists()) mkdirs() }
+        val helpersDir = File(rootfs, "usr/share/xfce4/helpers").apply { if (!exists()) mkdirs() }
+        val xdgXfce = File(rootfs, "etc/xdg/xfce4").apply { if (!exists()) mkdirs() }
+        val rootXfce = File(rootfs, "root/.config/xfce4").apply { if (!exists()) mkdirs() }
 
-        return """
+        configureVncStartup()
+
+        // 1. Browser launcher script
+        val launcherFile = File(localBin, "x-browser-launcher")
+        launcherFile.writeText(
+            """
+            #!/bin/sh
+            export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+            export WEBKIT_FORCE_SANDBOX=0
+            export WEBKIT_DISABLE_COMPOSITING_MODE=1
+            export WEBKIT_DISABLE_DMABUF_RENDERER=1
+
+            # Ensure DBus session bus is active
+            if [ -z "${'$'}DBUS_SESSION_BUS_ADDRESS" ] && command -v dbus-launch >/dev/null 2>&1; then
+                eval ${'$'}(dbus-launch --sh-syntax)
+            fi
+
+            # Prefer stable lightweight browsers first
+            if command -v netsurf-gtk >/dev/null 2>&1; then
+                exec netsurf-gtk "$@"
+            elif command -v epiphany-browser >/dev/null 2>&1 || command -v epiphany >/dev/null 2>&1; then
+                BIN=${'$'}(command -v epiphany-browser || command -v epiphany)
+                exec "${'$'}BIN" "$@"
+            elif command -v chromium-browser >/dev/null 2>&1; then
+                exec chromium-browser --no-sandbox --disable-gpu --disable-dev-shm-usage "$@"
+            elif command -v firefox >/dev/null 2>&1; then
+                exec firefox "$@"
+            else
+                xfce4-terminal -T "Web Tarayıcısı Kurulumu" -e "sh -c 'echo [BILGI] Sistemde henuz kurulu bir grafiksel web tarayicisi bulunamadi.; echo NetSurf GTK kurmak icin Enter tusuna basin...; read; apt-get update && apt-get install -y netsurf-gtk; echo; echo Kurulum Tamamlandi! Artik Web Tarayicisi simgesiyle acabilirsiniz.; read -p \"Kapatmak icin Enter...\"'" 2>/dev/null || true
+            fi
+            """.trimIndent() + "\n"
+        )
+        launcherFile.setExecutable(true, false)
+
+        // Symlink shortcuts for browser
+        val epLink = File(localBin, "epiphany-browser")
+        if (!epLink.exists()) {
+            File(rootfs, "usr/bin/x-www-browser").delete()
+        }
+
+        // 2. Desktop shortcuts
+        val browserDesktop = File(desktopDir, "Browser.desktop")
+        browserDesktop.writeText(
+            """
+            [Desktop Entry]
+            Version=1.0
+            Type=Application
+            Name=Web Tarayıcısı
+            Comment=İnternette Gezinin
+            Exec=/usr/local/bin/x-browser-launcher %U
+            Icon=web-browser
+            Terminal=false
+            Categories=Network;WebBrowser;
+            StartupNotify=true
+            """.trimIndent() + "\n"
+        )
+        browserDesktop.setExecutable(true, false)
+        File(appsDir, "web-browser.desktop").writeText(browserDesktop.readText())
+
+        val termDesktop = File(desktopDir, "Terminal.desktop")
+        termDesktop.writeText(
+            """
+            [Desktop Entry]
+            Version=1.0
+            Type=Application
+            Name=Uçbirim (Terminal)
+            Comment=Linux Komut Satırı
+            Exec=xfce4-terminal
+            Icon=utilities-terminal
+            Terminal=false
+            Categories=System;TerminalEmulator;
+            StartupNotify=true
+            """.trimIndent() + "\n"
+        )
+        termDesktop.setExecutable(true, false)
+
+        // Delete old broken desktop icon if exists
+        File(desktopDir, "Epiphany.desktop").delete()
+
+        // 3. XFCE Browser Helper
+        val helperDesktop = File(helpersDir, "custom-browser.desktop")
+        helperDesktop.writeText(
+            """
+            [Desktop Entry]
+            Version=1.0
+            Icon=web-browser
+            Type=X-XFCE-Helper
+            Name=Web Tarayıcısı
+            StartupNotify=true
+            X-XFCE-Binaries=x-browser-launcher;netsurf-gtk;epiphany-browser;epiphany;
+            X-XFCE-Category=WebBrowser
+            X-XFCE-Commands=/usr/local/bin/x-browser-launcher;
+            X-XFCE-CommandsWithParameter=/usr/local/bin/x-browser-launcher "%s";
+            """.trimIndent() + "\n"
+        )
+        File(xdgXfce, "helpers.rc").writeText("WebBrowser=custom-browser\n")
+        File(rootXfce, "helpers.rc").writeText("WebBrowser=custom-browser\n")
+
+        // 4. Dedicated start-desktop script
+        val geometry = resolution.geometry
+        val startDesktopFile = File(localBin, "start-desktop")
+        startDesktopFile.writeText(
+            """
+            #!/bin/sh
             export HOME=/root
             export USER=root
             export LANG=C.UTF-8
 
-            # Clean previous instances
+            # Clean previous VNC & WebSocket instances
             vncserver -kill :1 2>/dev/null || true
             pkill -f websockify 2>/dev/null || true
             pkill -f novnc 2>/dev/null || true
-            rm -rf /tmp/.X11-unix/X1 /tmp/.X1-lock 2>/dev/null || true
+            rm -rf /tmp/.X11-unix/X1 /tmp/.X1-lock /tmp/.vnc/*.log /tmp/.vnc/*.pid 2>/dev/null || true
 
             # Start TigerVNC server on display :1 (port 5901)
             vncserver :1 -geometry $geometry -depth 24 -SecurityTypes None
 
-            # Patch noVNC to remove the light grey background curve and border-bottom-right-radius (800px 600px)
+            # Patch noVNC style if present
             if [ -f /usr/share/novnc/app/styles/base.css ]; then
                 sed -i 's/border-bottom-right-radius:[^;]*;/border-bottom-right-radius: 0px !important;/g' /usr/share/novnc/app/styles/base.css 2>/dev/null || true
                 sed -i 's/border-radius:[^;]*;/border-radius: 0px !important;/g' /usr/share/novnc/app/styles/base.css 2>/dev/null || true
-                sed -i 's/background-position:right bottom;/background-position: center; background-image: none !important;/g' /usr/share/novnc/app/styles/base.css 2>/dev/null || true
             fi
-
-            # Patch noVNC to export window.UI and window.rfb globally and hide all default noVNC toolbars/buttons
             if [ -f /usr/share/novnc/vnc.html ]; then
-                grep -q "window.UI" /usr/share/novnc/vnc.html || sed -i 's/import UI from "\.\/app\/ui\.js";/import UI from ".\/app\/ui.js"; window.UI = UI;/' /usr/share/novnc/vnc.html 2>/dev/null || true
-                grep -q "window.UI" /usr/share/novnc/vnc.html || sed -i "s/import UI from '\.\/app\/ui\.js';/import UI from '.\/app\/ui.js'; window.UI = UI;/" /usr/share/novnc/vnc.html 2>/dev/null || true
                 grep -q "ubuntu_novnc_hide" /usr/share/novnc/vnc.html || sed -i 's/<\/head>/<style id="ubuntu_novnc_hide">#noVNC_control_bar_anchor,#noVNC_control_bar,#noVNC_control_bar_handle,.noVNC_control_bar_hint,.noVNC_hint_anchor,#noVNC_mobile_buttons,#noVNC_transition,#noVNC_status{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;}.noVNC_panel{visibility:hidden!important;opacity:0!important;pointer-events:none!important;position:fixed!important;left:-9999px!important;}html,body,#noVNC_container{background:#000000!important;background-image:none!important;border-radius:0px!important;-webkit-border-radius:0px!important;}<\/style><\/head>/' /usr/share/novnc/vnc.html 2>/dev/null || true
             fi
-            if [ -f /usr/share/novnc/app/ui.js ]; then
-                grep -q "window.rfb" /usr/share/novnc/app/ui.js || sed -i 's/this\.rfb = new RFB(/window.rfb = this.rfb = new RFB(/' /usr/share/novnc/app/ui.js 2>/dev/null || true
-            fi
-
-            # Configure universal browser launcher for XFCE & PRoot environment
-            mkdir -p /etc/xdg/xfce4 /root/.config/xfce4 /usr/share/xfce4/helpers /root/Desktop /usr/share/applications /usr/local/bin 2>/dev/null || true
-            cat << 'EOF' > /usr/local/bin/x-browser-launcher
-#!/bin/sh
-export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
-export WEBKIT_FORCE_SANDBOX=0
-export WEBKIT_DISABLE_COMPOSITING_MODE=1
-export WEBKIT_DISABLE_DMABUF_RENDERER=1
-
-# Ensure DBus session bus is active
-if [ -z "\${'$'}DBUS_SESSION_BUS_ADDRESS" ] && command -v dbus-launch >/dev/null 2>&1; then
-    eval ${'$'}(dbus-launch --sh-syntax)
-fi
-
-# Try launching installed browsers in order of compatibility
-if command -v epiphany-browser >/dev/null 2>&1 || command -v epiphany >/dev/null 2>&1; then
-    BIN=${'$'}(command -v epiphany-browser || command -v epiphany)
-    "${'$'}BIN" "\${'$'}@" > /tmp/epiphany_err.log 2>&1 &
-    PID=${'$'}!
-    sleep 1.2
-    if ! kill -0 ${'$'}PID 2>/dev/null; then
-        xfce4-terminal -T "Epiphany Hatasi" -e "sh -c 'echo [UYARI] Epiphany tarayicisi acilirken kapandi!; echo --- Hata Ciktisi: ---; cat /tmp/epiphany_err.log; echo; echo =================================================; echo En hizli ve sorunsuz cozum:; echo Terminal sekmesinden NetSurf kurun:; echo apt install -y netsurf-gtk; echo =================================================; read -p \"Kapatmak icin Enter tusuna basin...\"'" 2>/dev/null || true
-    fi
-elif command -v netsurf-gtk >/dev/null 2>&1; then
-    exec netsurf-gtk "\${'$'}@"
-elif command -v chromium-browser >/dev/null 2>&1; then
-    exec chromium-browser --no-sandbox --disable-gpu --disable-dev-shm-usage "\${'$'}@"
-elif command -v firefox >/dev/null 2>&1; then
-    exec firefox "\${'$'}@"
-else
-    xfce4-terminal -T "Tarayici Kurulumu" -e "sh -c 'echo [BILGI] Sistemde henuz kurulu bir grafiksel web tarayicisi bulunamadi.; echo Kurmak icin bu pencerede Enter tusuna basin...; read; apt-get update && apt-get install -y netsurf-gtk; echo Bitti! Artik Web Tarayicisi simgesini kullanabilirsiniz.; read -p \"Cikmak icin Enter...\"'" 2>/dev/null || true
-fi
-EOF
-            chmod +x /usr/local/bin/x-browser-launcher 2>/dev/null || true
-            ln -sf /usr/local/bin/x-browser-launcher /usr/local/bin/epiphany-browser 2>/dev/null || true
-            ln -sf /usr/local/bin/x-browser-launcher /usr/bin/x-www-browser 2>/dev/null || true
-
-            rm -f /root/Desktop/Epiphany.desktop 2>/dev/null || true
-
-            cat << 'EOF' > /root/Desktop/Browser.desktop
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=Web Tarayıcısı
-Comment=İnternette Gezinin
-Exec=/usr/local/bin/x-browser-launcher %U
-Icon=web-browser
-Terminal=false
-Categories=Network;WebBrowser;
-StartupNotify=true
-EOF
-
-            cat << 'EOF' > /root/Desktop/Terminal.desktop
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=Uçbirim (Terminal)
-Comment=Linux Komut Satırı
-Exec=xfce4-terminal
-Icon=utilities-terminal
-Terminal=false
-Categories=System;TerminalEmulator;
-StartupNotify=true
-EOF
-
-            chmod 755 /root/Desktop/*.desktop 2>/dev/null || true
-            gio set /root/Desktop/Browser.desktop metadata::trusted yes 2>/dev/null || true
-            gio set /root/Desktop/Terminal.desktop metadata::trusted yes 2>/dev/null || true
-            cp /root/Desktop/Browser.desktop /usr/share/applications/web-browser.desktop 2>/dev/null || true
-
-            cat << 'EOF' > /usr/share/xfce4/helpers/custom-browser.desktop
-[Desktop Entry]
-Version=1.0
-Icon=web-browser
-Type=X-XFCE-Helper
-Name=Web Tarayıcısı
-StartupNotify=true
-X-XFCE-Binaries=x-browser-launcher;epiphany-browser;epiphany;netsurf-gtk;chromium-browser;
-X-XFCE-Category=WebBrowser
-X-XFCE-Commands=/usr/local/bin/x-browser-launcher;
-X-XFCE-CommandsWithParameter=/usr/local/bin/x-browser-launcher "%s";
-EOF
-            echo "WebBrowser=custom-browser" > /etc/xdg/xfce4/helpers.rc 2>/dev/null || true
-            echo "WebBrowser=custom-browser" > /root/.config/xfce4/helpers.rc 2>/dev/null || true
 
             # Start noVNC WebSocket bridge on port 6080
             if [ -d /usr/share/novnc ]; then
-                websockify --web /usr/share/novnc 6080 localhost:5901 >/dev/null 2>&1 &
+                nohup websockify --web /usr/share/novnc 6080 localhost:5901 >/dev/null 2>&1 &
             elif command -v novnc >/dev/null 2>&1; then
-                novnc --listen 6080 --vnc localhost:5901 >/dev/null 2>&1 &
+                nohup novnc --listen 6080 --vnc localhost:5901 >/dev/null 2>&1 &
             fi
 
-            echo ">>> XFCE4 Masaüstü ve noVNC başlatıldı (Port: 6080)"
-        """.trimIndent()
+            echo ">>> XFCE4 Masaüstü ve noVNC arka planda başlatıldı (Port: 6080)"
+            """.trimIndent() + "\n"
+        )
+        startDesktopFile.setExecutable(true, false)
+
+        // 5. Dedicated stop-desktop script
+        val stopDesktopFile = File(localBin, "stop-desktop")
+        stopDesktopFile.writeText(
+            """
+            #!/bin/sh
+            vncserver -kill :1 2>/dev/null || true
+            pkill -f websockify 2>/dev/null || true
+            pkill -f novnc 2>/dev/null || true
+            pkill -f xfce4 2>/dev/null || true
+            rm -rf /tmp/.X11-unix/X1 /tmp/.X1-lock 2>/dev/null || true
+            echo ">>> XFCE4 Masaüstü sunucusu durduruldu."
+            """.trimIndent() + "\n"
+        )
+        stopDesktopFile.setExecutable(true, false)
+    }
+
+    /**
+     * Generates the command string to start VNC and noVNC inside Ubuntu
+     */
+    fun getStartDesktopCommand(resolution: DesktopResolution = _selectedResolution.value): String {
+        prepareDesktopFiles(resolution)
+        return "chmod +x /usr/local/bin/start-desktop /usr/local/bin/stop-desktop /usr/local/bin/x-browser-launcher 2>/dev/null; /usr/local/bin/start-desktop"
     }
 
     /**
      * Generates command string to stop VNC and desktop processes
      */
     fun getStopDesktopCommand(): String {
-        return """
-            vncserver -kill :1 2>/dev/null || true
-            pkill -f websockify 2>/dev/null || true
-            pkill -f novnc 2>/dev/null || true
-            pkill -f xfce4 2>/dev/null || true
-            echo ">>> XFCE4 Masaüstü sunucusu durduruldu."
-        """.trimIndent()
+        return "chmod +x /usr/local/bin/stop-desktop 2>/dev/null; /usr/local/bin/stop-desktop"
     }
 
     /**

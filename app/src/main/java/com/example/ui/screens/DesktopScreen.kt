@@ -524,6 +524,8 @@ fun DesktopScreen(
     var showToolbar by remember { mutableStateOf(true) }
     var isPageLoading by remember { mutableStateOf(true) }
     var isTouchpadMode by remember { mutableStateOf(true) }
+    var connectionFailed by remember { mutableStateOf(false) }
+    var retryCount by remember { mutableStateOf(0) }
 
     if (installState !is InstallState.Installed) {
         Column(
@@ -607,10 +609,15 @@ fun DesktopScreen(
                                 ) {
                                     super.onReceivedError(view, request, error)
                                     if (request?.isForMainFrame == true) {
-                                        // VNC/Websockify might need a moment to accept connections; auto retry
-                                        view?.postDelayed({
-                                            view.reload()
-                                        }, 1200)
+                                        if (retryCount < 3) {
+                                            retryCount++
+                                            view?.postDelayed({
+                                                view.reload()
+                                            }, 1200)
+                                        } else {
+                                            connectionFailed = true
+                                            isPageLoading = false
+                                        }
                                     }
                                 }
                             }
@@ -624,7 +631,7 @@ fun DesktopScreen(
                 )
 
                 // Seamless Dark Loading Overlay while WebView connects
-                if (isPageLoading) {
+                if (isPageLoading && !connectionFailed) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -648,6 +655,65 @@ fun DesktopScreen(
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Medium
                             )
+                        }
+                    }
+                }
+
+                // Connection Failed Overlay
+                if (connectionFailed) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF15151F)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth(0.9f)
+                                .padding(16.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF261D2E))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DesktopWindows,
+                                    contentDescription = null,
+                                    tint = UbuntuOrange,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "Masaüstü Bağlantısı Kesildi",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Ubuntu PRoot oturumu durmuş veya VNC sunucusu kapanmış olabilir.",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFFD1C4E9),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = {
+                                        connectionFailed = false
+                                        retryCount = 0
+                                        isPageLoading = true
+                                        onStartDesktop()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = UbuntuOrange),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Masaüstünü Yeniden Başlat", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }

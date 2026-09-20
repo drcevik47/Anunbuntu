@@ -354,16 +354,22 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
         if (!installer.isInstalled()) return
         viewModelScope.launch {
             desktopManager.markStarting()
+
+            // 1. If terminal session is not running, start it first
+            if (!runner.isRunning) {
+                runner.startSession(viewModelScope)
+                delay(1200)
+            }
+
             val startCmd = desktopManager.getStartDesktopCommand()
             sendCommand(startCmd)
             
             // Wait actively until VNC/Websockify port 6080 is open and accepting connections
-            withContext(Dispatchers.IO) {
+            val portReady = withContext(Dispatchers.IO) {
                 var ready = false
                 val start = System.currentTimeMillis()
-                // Initial wait for PRoot shell to spawn processes
                 try { Thread.sleep(1200) } catch (_: Exception) {}
-                while (!ready && (System.currentTimeMillis() - start < 15000)) {
+                while (!ready && (System.currentTimeMillis() - start < 18000)) {
                     try {
                         Socket().use { socket ->
                             socket.connect(InetSocketAddress("127.0.0.1", 6080), 500)
@@ -373,11 +379,15 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
                         try { Thread.sleep(400) } catch (_: Exception) {}
                     }
                 }
+                ready
             }
 
-            // Brief buffer so HTTP server finishes handshake
-            delay(500)
-            desktopManager.markRunning()
+            if (portReady) {
+                delay(500)
+                desktopManager.markRunning()
+            } else {
+                desktopManager.markError("Masaüstü servisi (Port 6080) henüz hazır değil. Lütfen 'Yeniden Başlat' butonuna dokunun.")
+            }
         }
     }
 
