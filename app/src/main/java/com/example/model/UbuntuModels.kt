@@ -30,20 +30,26 @@ data class UbuntuDistro(
     val name: String,
     val codename: String,
     val version: String,
-    val downloadUrl: String,
+    val downloadUrls: List<String>,
     val approxDownloadMb: Int,
     val approxInstalledMb: Int,
     val description: String,
     val isLts: Boolean = true
-)
+) {
+    val downloadUrl: String get() = downloadUrls.first()
+}
 
 object UbuntuDistros {
     val UBUNTU_24_04 = UbuntuDistro(
         id = "ubuntu-24.04-arm64",
         name = "Ubuntu 24.04 LTS",
         codename = "Noble Numbat",
-        version = "24.04.1",
-        downloadUrl = "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.1-base-arm64.tar.gz",
+        version = "24.04",
+        downloadUrls = listOf(
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04-base-arm64.tar.gz",
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04.1/release/ubuntu-base-24.04.1-base-arm64.tar.gz",
+            "http://mirrors.kernel.org/ubuntu-cdimage/ubuntu-base/releases/24.04/release/ubuntu-base-24.04-base-arm64.tar.gz"
+        ),
         approxDownloadMb = 31,
         approxInstalledMb = 98,
         description = "En güncel Long-Term Support (LTS) Ubuntu sürümü. ARM64 mimarisi için optimize edilmiş minimal rootfs tabanı.",
@@ -54,8 +60,13 @@ object UbuntuDistros {
         id = "ubuntu-22.04-arm64",
         name = "Ubuntu 22.04 LTS",
         codename = "Jammy Jellyfish",
-        version = "22.04.5",
-        downloadUrl = "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04.5-base-arm64.tar.gz",
+        version = "22.04",
+        downloadUrls = listOf(
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-arm64.tar.gz",
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04.2/release/ubuntu-base-22.04.2-base-arm64.tar.gz",
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04.1/release/ubuntu-base-22.04.1-base-arm64.tar.gz",
+            "http://mirrors.kernel.org/ubuntu-cdimage/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-arm64.tar.gz"
+        ),
         approxDownloadMb = 29,
         approxInstalledMb = 92,
         description = "Maksimum paket kararlılığı ve uyumluluk sunan güvenilir LTS sürümü.",

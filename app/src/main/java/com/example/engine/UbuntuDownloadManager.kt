@@ -17,6 +17,7 @@ class UbuntuDownloadManager(private val context: Context) {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)
+        .followSslRedirects(true)
         .build()
 
     suspend fun downloadDistro(
@@ -26,67 +27,83 @@ class UbuntuDownloadManager(private val context: Context) {
         val cacheDir = context.cacheDir
         val targetFile = File(cacheDir, "${distro.id}.tar.gz")
 
-        // If an intact archive already exists and matches expected size, reuse
-        val request = Request.Builder()
-            .url(distro.downloadUrl)
-            .header("User-Agent", "UbuntuARM64-Android-Installer/1.0")
-            .build()
-
-        val response = client.newCall(request).execute()
-        if (!response.isSuccessful) {
-            throw IllegalStateException("İndirme başarısız oldu: HTTP ${response.code} - ${response.message}")
-        }
-
-        val body = response.body ?: throw IllegalStateException("Sunucu boş yanıt döndürdü")
-        val contentLength = body.contentLength()
-        val totalBytes = if (contentLength > 0) contentLength else (distro.approxDownloadMb * 1024L * 1024L)
-
+        val urlsToTry = distro.downloadUrls
+        var lastException: Exception? = null
         val tempFile = File(cacheDir, "${distro.id}.tar.gz.tmp")
-        if (tempFile.exists()) tempFile.delete()
 
-        var downloadedBytes = 0L
-        var lastTime = System.currentTimeMillis()
-        var lastBytes = 0L
-        var speedKbps = 0L
+        for ((index, currentUrl) in urlsToTry.withIndex()) {
+            try {
+                if (tempFile.exists()) tempFile.delete()
 
-        body.byteStream().use { input ->
-            FileOutputStream(tempFile).use { output ->
-                val buffer = ByteArray(64 * 1024)
-                var bytesRead: Int
+                val request = Request.Builder()
+                    .url(currentUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android) UbuntuARM64-Installer/1.0")
+                    .build()
 
-                while (input.read(buffer).also { bytesRead = it } != -1) {
-                    if (!isActive) {
-                        tempFile.delete()
-                        throw IllegalStateException("İndirme kullanıcı tarafından iptal edildi")
-                    }
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    val code = response.code
+                    val msg = response.message
+                    response.close()
+                    lastException = IllegalStateException("Ayna #${index + 1} ($currentUrl) başarısız oldu: HTTP $code - $msg")
+                    continue
+                }
 
-                    output.write(buffer, 0, bytesRead)
-                    downloadedBytes += bytesRead
+                val body = response.body ?: throw IllegalStateException("Sunucu boş yanıt döndürdü")
+                val contentLength = body.contentLength()
+                val totalBytes = if (contentLength > 0) contentLength else (distro.approxDownloadMb * 1024L * 1024L)
 
-                    val now = System.currentTimeMillis()
-                    val timeDiff = now - lastTime
-                    if (timeDiff >= 500) {
-                        val bytesDiff = downloadedBytes - lastBytes
-                        speedKbps = (bytesDiff * 1000L / timeDiff) / 1024L
-                        lastTime = now
-                        lastBytes = downloadedBytes
+                var downloadedBytes = 0L
+                var lastTime = System.currentTimeMillis()
+                var lastBytes = 0L
+                var speedKbps = 0L
 
-                        val progress = (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0.0f, 1.0f)
-                        onProgress(progress, downloadedBytes, totalBytes, speedKbps)
+                body.byteStream().use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var bytesRead: Int
+
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            if (!isActive) {
+                                tempFile.delete()
+                                throw IllegalStateException("İndirme kullanıcı tarafından iptal edildi")
+                            }
+
+                            output.write(buffer, 0, bytesRead)
+                            downloadedBytes += bytesRead
+
+                            val now = System.currentTimeMillis()
+                            val timeDiff = now - lastTime
+                            if (timeDiff >= 400) {
+                                val bytesDiff = downloadedBytes - lastBytes
+                                speedKbps = (bytesDiff * 1000L / timeDiff) / 1024L
+                                lastTime = now
+                                lastBytes = downloadedBytes
+
+                                val progress = (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0.0f, 1.0f)
+                                onProgress(progress, downloadedBytes, totalBytes, speedKbps)
+                            }
+                        }
+                        output.flush()
                     }
                 }
-                output.flush()
+
+                if (targetFile.exists()) targetFile.delete()
+                if (!tempFile.renameTo(targetFile)) {
+                    tempFile.copyTo(targetFile, overwrite = true)
+                    tempFile.delete()
+                }
+
+                onProgress(1.0f, downloadedBytes, totalBytes, speedKbps)
+                return@withContext targetFile
+
+            } catch (e: Exception) {
+                if (!isActive) throw e
+                lastException = e
             }
         }
 
-        if (targetFile.exists()) targetFile.delete()
-        if (!tempFile.renameTo(targetFile)) {
-            tempFile.copyTo(targetFile, overwrite = true)
-            tempFile.delete()
-        }
-
-        onProgress(1.0f, downloadedBytes, totalBytes, speedKbps)
-        targetFile
+        throw lastException ?: IllegalStateException("Ubuntu rootfs arşivi hiçbir aynadan indirilemedi.")
     }
 
     fun getDownloadedArchive(distro: UbuntuDistro): File? {
