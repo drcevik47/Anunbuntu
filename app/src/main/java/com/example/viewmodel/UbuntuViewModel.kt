@@ -53,6 +53,8 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
     private val _isTerminalRunning = MutableStateFlow(false)
     val isTerminalRunning: StateFlow<Boolean> = _isTerminalRunning.asStateFlow()
 
+    val isCommandExecuting: StateFlow<Boolean> = runner.isExecuting
+
     private val _packageStatuses = MutableStateFlow<Map<String, PackageStatus>>(emptyMap())
     val packageStatuses: StateFlow<Map<String, PackageStatus>> = _packageStatuses.asStateFlow()
 

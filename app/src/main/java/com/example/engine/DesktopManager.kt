@@ -142,7 +142,9 @@ class DesktopManager(
      * Command to install XFCE4, TigerVNC and noVNC inside Ubuntu
      */
     fun getInstallDesktopCommand(): String {
-        return "export DEBIAN_FRONTEND=noninteractive; " +
+        return "rm -f /etc/apt/apt.conf.d/00_debconf 2>/dev/null; " +
+               "export DEBIAN_FRONTEND=noninteractive; " +
+               "chmod -R 755 /usr/share/debconf /var/lib/dpkg/info 2>/dev/null; " +
                "apt-get update && " +
                "apt-get install -y --no-install-recommends " +
                "xfce4 xfce4-terminal tigervnc-standalone-server tigervnc-common novnc websockify dbus-x11 adwaita-icon-theme"

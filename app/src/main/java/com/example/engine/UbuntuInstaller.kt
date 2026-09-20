@@ -263,12 +263,16 @@ class UbuntuInstaller(private val context: Context) {
                 """.trimIndent() + "\n"
             )
 
-            val debconfApt = File(aptConfDir, "00_debconf")
-            debconfApt.writeText(
+            val badDebconf = File(aptConfDir, "00_debconf")
+            if (badDebconf.exists()) badDebconf.delete()
+
+            val dpkgOptions = File(aptConfDir, "00_dpkg_options")
+            dpkgOptions.writeText(
                 """
-                debconf debconf/frontend select Noninteractive;
-                debconf debconf/priority select critical;
-                DPkg::Options { "--force-confdef"; "--force-confold"; };
+                DPkg::Options {
+                   "--force-confdef";
+                   "--force-confold";
+                };
                 """.trimIndent() + "\n"
             )
 

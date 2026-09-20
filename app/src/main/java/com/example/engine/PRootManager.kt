@@ -391,13 +391,19 @@ class PRootManager(
                 """.trimIndent() + "\n"
             )
 
-            val debconfApt = File(aptConfDir, "00_debconf")
-            debconfApt.writeText(
+            // Remove bad debconf apt config if exists (caused syntax error)
+            val badDebconf = File(aptConfDir, "00_debconf")
+            if (badDebconf.exists()) {
+                badDebconf.delete()
+            }
+
+            val dpkgOptions = File(aptConfDir, "00_dpkg_options")
+            dpkgOptions.writeText(
                 """
-                // Force debconf noninteractive mode in apt
-                debconf debconf/frontend select Noninteractive;
-                debconf debconf/priority select critical;
-                DPkg::Options { "--force-confdef"; "--force-confold"; };
+                DPkg::Options {
+                   "--force-confdef";
+                   "--force-confold";
+                };
                 """.trimIndent() + "\n"
             )
 

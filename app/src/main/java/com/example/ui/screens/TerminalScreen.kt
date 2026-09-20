@@ -1,5 +1,11 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -31,11 +37,9 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -50,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -70,9 +75,31 @@ import com.example.ui.theme.UbuntuOrange
 import com.example.ui.theme.UbuntuWarmOrange
 
 @Composable
+fun BlinkingCursor(modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "cursor")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "cursor_alpha"
+    )
+    Box(
+        modifier = modifier
+            .width(8.dp)
+            .height(15.dp)
+            .graphicsLayer { this.alpha = alpha }
+            .background(TerminalGreen)
+    )
+}
+
+@Composable
 fun TerminalScreen(
     terminalLines: List<TerminalOutputLine>,
     isTerminalRunning: Boolean,
+    isCommandExecuting: Boolean = false,
     installState: InstallState,
     onSendCommand: (String) -> Unit,
     onSendSpecialKey: (String) -> Unit,
@@ -85,10 +112,10 @@ fun TerminalScreen(
     var commandInput by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    // Auto scroll to bottom when new line arrives
-    LaunchedEffect(terminalLines.size) {
+    // Auto scroll to bottom when new line arrives or execution state changes
+    LaunchedEffect(terminalLines.size, isCommandExecuting) {
         if (terminalLines.isNotEmpty()) {
-            listState.animateScrollToItem(terminalLines.size - 1)
+            listState.animateScrollToItem(terminalLines.size)
         }
     }
 
@@ -114,19 +141,60 @@ fun TerminalScreen(
                         modifier = Modifier
                             .size(10.dp)
                             .clip(CircleShape)
-                            .background(if (isTerminalRunning) TerminalGreen else Color(0xFFE53935))
+                            .background(
+                                when {
+                                    !isTerminalRunning -> Color(0xFFE53935)
+                                    isCommandExecuting -> UbuntuWarmOrange
+                                    else -> TerminalGreen
+                                }
+                            )
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isTerminalRunning) "ubuntu@arm64: active" else "ubuntu@arm64: stopped",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isTerminalRunning) TerminalGreen else Color.Gray
-                    )
+                    Column {
+                        Text(
+                            text = when {
+                                !isTerminalRunning -> "ubuntu@arm64: kapalı"
+                                isCommandExecuting -> "ubuntu@arm64: ÇALIŞIYOR"
+                                else -> "ubuntu@arm64: HAZIR"
+                            },
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = when {
+                                !isTerminalRunning -> Color.Gray
+                                isCommandExecuting -> UbuntuWarmOrange
+                                else -> TerminalGreen
+                            }
+                        )
+                        if (isTerminalRunning) {
+                            Text(
+                                text = if (isCommandExecuting) "⏳ Komut yürütülüyor..." else "✓ Komut bekleniyor",
+                                fontSize = 10.sp,
+                                color = if (isCommandExecuting) UbuntuWarmOrange.copy(alpha = 0.9f) else Color.Gray
+                            )
+                        }
+                    }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isCommandExecuting) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFD32F2F),
+                            modifier = Modifier
+                                .clickable { onSendSpecialKey("CTRL_C") }
+                                .padding(end = 6.dp)
+                        ) {
+                            Text(
+                                text = "Ctrl+C Durdur",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
                     if (isTerminalRunning) {
                         IconButton(
                             onClick = {
@@ -193,8 +261,9 @@ fun TerminalScreen(
 
         // Quick Command Chips
         val quickCommands = listOf(
-            "chmod -R 755 /usr/share/debconf /var/lib/dpkg/info 2>/dev/null; dpkg --configure -a" to "🛠️ DPKG Onar",
-            "apt --fix-broken install -y" to "📦 Paket Düzelt",
+            "rm -f /etc/apt/apt.conf.d/00_debconf 2>/dev/null; chmod -R 755 /usr/share/debconf /var/lib/dpkg/info 2>/dev/null; dpkg --configure -a" to "🛠️ DPKG Onar",
+            "rm -f /etc/apt/apt.conf.d/00_debconf 2>/dev/null; apt-get update && apt --fix-broken install -y" to "📦 Paket Düzelt",
+            "apt-get update && apt-get install -y --no-install-recommends xfce4 xfce4-terminal tigervnc-standalone-server tigervnc-common novnc websockify dbus-x11 adwaita-icon-theme" to "🖥️ Masaüstü Kur",
             "cat /etc/os-release" to "OS Bilgisi",
             "uname -m" to "Mimari",
             "df -h" to "Disk",
@@ -302,6 +371,66 @@ fun TerminalScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+
+                    // Dynamic Terminal Status / Cursor at Bottom
+                    if (isTerminalRunning) {
+                        if (isCommandExecuting) {
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .background(Color(0xFF26180B), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(12.dp),
+                                        color = UbuntuWarmOrange,
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Komut yürütülüyor... Çıktı bekleniyor",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = UbuntuWarmOrange
+                                    )
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color(0xFFD32F2F),
+                                        modifier = Modifier.clickable { onSendSpecialKey("CTRL_C") }
+                                    ) {
+                                        Text(
+                                            text = "CTRL+C",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            item {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "root@ubuntu-arm64:~# ",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TerminalGreen
+                                    )
+                                    BlinkingCursor()
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -362,7 +491,7 @@ fun TerminalScreen(
         ) {
             Text(
                 text = "#",
-                color = TerminalGreen,
+                color = if (isCommandExecuting) UbuntuWarmOrange else TerminalGreen,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp,
@@ -377,7 +506,7 @@ fun TerminalScreen(
                     .testTag("command_input_field"),
                 placeholder = {
                     Text(
-                        text = "Ubuntu komutu yazın (örn: ls -la, uname -m)",
+                        text = if (isCommandExecuting) "Komut çalışıyor... (Durdur: Ctrl+C)" else "Ubuntu komutu yazın (örn: ls -la, uname -m)",
                         fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
                         color = Color.DarkGray

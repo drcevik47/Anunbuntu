@@ -22,6 +22,7 @@ fun MainScreen(
     val selectedDistro by viewModel.selectedDistro.collectAsState()
     val terminalLines by viewModel.terminalLines.collectAsState()
     val isTerminalRunning by viewModel.isTerminalRunning.collectAsState()
+    val isCommandExecuting by viewModel.isCommandExecuting.collectAsState()
     val packageStatuses by viewModel.packageStatuses.collectAsState()
     val isPRootReady by viewModel.isPRootReady.collectAsState()
     val desktopState by viewModel.desktopState.collectAsState()
@@ -59,6 +60,7 @@ fun MainScreen(
                 2 -> TerminalScreen(
                     terminalLines = terminalLines,
                     isTerminalRunning = isTerminalRunning,
+                    isCommandExecuting = isCommandExecuting,
                     installState = installState,
                     onSendCommand = { viewModel.sendCommand(it) },
                     onSendSpecialKey = { viewModel.sendSpecialKey(it) },

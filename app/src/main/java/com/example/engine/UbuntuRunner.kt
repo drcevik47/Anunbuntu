@@ -6,6 +6,9 @@ import com.example.model.TerminalOutputLine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -32,6 +35,15 @@ class UbuntuRunner(
 
     private var _isRunning: Boolean = false
     val isRunning: Boolean get() = _isRunning
+
+    private val _isExecuting = MutableStateFlow(false)
+    val isExecuting: StateFlow<Boolean> = _isExecuting.asStateFlow()
+
+    private val ansiRegex = Regex("\u001B\\[[;?0-9]*[a-zA-Z]|\u001B\\([a-zA-Z]")
+
+    private fun cleanAnsi(text: String): String {
+        return text.replace(ansiRegex, "")
+    }
 
     /**
      * Prepares helper scripts and execution environment
@@ -189,9 +201,10 @@ class UbuntuRunner(
 
             // Setup prompt & environment inside the container
             val initCommands = listOf(
+                "rm -f /etc/apt/apt.conf.d/00_debconf 2>/dev/null",
                 "export DEBIAN_FRONTEND=noninteractive",
                 "export DEBCONF_NONINTERACTIVE_SEEN=true",
-                "export PS1='\\[\\033[01;32m\\]root@ubuntu-arm64\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]# '",
+                "export PS1='root@ubuntu-arm64:\\w# '",
                 "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${'$'}PATH",
                 "export HOME=/root",
                 "export USER=root",
@@ -217,6 +230,7 @@ class UbuntuRunner(
                 try {
                     val exitCode = process.waitFor()
                     _isRunning = false
+                    _isExecuting.value = false
                     _outputFlow.emit(
                         TerminalOutputLine(
                             text = "\n[İşlem sonlandı (Çıkış Kodu: $exitCode)]",
@@ -229,6 +243,7 @@ class UbuntuRunner(
             }
         } catch (e: Exception) {
             _isRunning = false
+            _isExecuting.value = false
             _outputFlow.emit(
                 TerminalOutputLine(
                     text = "Konsol başlatma hatası: ${e.localizedMessage}",
@@ -250,24 +265,40 @@ class UbuntuRunner(
                 val chunk = String(buffer, 0, read)
                 for (char in chunk) {
                     if (char == '\n') {
-                        val line = lineAccumulator.toString()
+                        val line = cleanAnsi(lineAccumulator.toString())
                         lineAccumulator = StringBuilder()
-                        _outputFlow.emit(TerminalOutputLine(text = line, type = type))
+                        if (line.isNotEmpty()) {
+                            _outputFlow.emit(TerminalOutputLine(text = line, type = type))
+                        }
                     } else if (char != '\r') {
                         lineAccumulator.append(char)
                     }
                 }
-                if (lineAccumulator.length > 300) {
-                    val line = lineAccumulator.toString()
+
+                // If no more bytes immediately available in stream, flush pending partial line (such as bash prompt)
+                if (!reader.ready() && lineAccumulator.isNotEmpty()) {
+                    val line = cleanAnsi(lineAccumulator.toString())
                     lineAccumulator = StringBuilder()
+                    if (line.isNotEmpty()) {
+                        _outputFlow.emit(TerminalOutputLine(text = line, type = type))
+                        // If prompt is displayed or bash is awaiting input, mark execution complete
+                        if (line.contains("#") || line.contains("$") || line.contains("root@")) {
+                            _isExecuting.value = false
+                        }
+                    }
+                }
+            }
+
+            if (lineAccumulator.isNotEmpty()) {
+                val line = cleanAnsi(lineAccumulator.toString())
+                if (line.isNotEmpty()) {
                     _outputFlow.emit(TerminalOutputLine(text = line, type = type))
                 }
             }
-            if (lineAccumulator.isNotEmpty()) {
-                _outputFlow.emit(TerminalOutputLine(text = lineAccumulator.toString(), type = type))
-            }
         } catch (_: Exception) {
             // Stream closed
+        } finally {
+            _isExecuting.value = false
         }
     }
 
@@ -275,10 +306,12 @@ class UbuntuRunner(
 
     suspend fun sendCommand(command: String) = withContext(Dispatchers.IO) {
         try {
+            _isExecuting.value = true
             _outputFlow.emit(TerminalOutputLine(text = "# $command", type = LineType.STDIN))
             processWriter?.write(command + "\n")
             processWriter?.flush()
         } catch (e: Exception) {
+            _isExecuting.value = false
             _outputFlow.emit(
                 TerminalOutputLine(text = "Komut gönderilemedi: ${e.message}", type = LineType.STDERR)
             )
@@ -290,7 +323,9 @@ class UbuntuRunner(
             when (key) {
                 "CTRL_C" -> {
                     processWriter?.write("\u0003")
-                    _outputFlow.emit(TerminalOutputLine(text = "^C", type = LineType.SYSTEM))
+                    processWriter?.flush()
+                    _isExecuting.value = false
+                    _outputFlow.emit(TerminalOutputLine(text = "^C [Komut durduruldu]", type = LineType.SYSTEM))
                 }
                 "CTRL_D" -> {
                     processWriter?.write("\u0004")
@@ -321,6 +356,7 @@ class UbuntuRunner(
 
     fun stopSession() {
         _isRunning = false
+        _isExecuting.value = false
         readJob?.cancel()
         try {
             processWriter?.write("exit\n")
