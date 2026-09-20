@@ -68,10 +68,28 @@ object PredefinedPackages {
             id = "epiphany",
             name = "Web Tarayıcısı (Epiphany / GNOME Web)",
             category = PackageCategory.ESSENTIAL,
-            description = "XFCE için optimize edilmiş, hafif ve hızlı grafiksel web tarayıcısı.",
+            description = "XFCE için grafiksel web tarayıcısı.",
             installPackageName = "epiphany-browser",
-            checkBinaryPath = "usr/bin/epiphany-browser",
+            checkBinaryPath = "usr/bin/epiphany",
             approxSizeMb = 45
+        ),
+        UbuntuPackage(
+            id = "netsurf",
+            name = "Hızlı Web Tarayıcısı (NetSurf GTK)",
+            category = PackageCategory.ESSENTIAL,
+            description = "PRoot ortamı için ultra hafif, hızlı ve anında açılan web tarayıcısı (~10MB).",
+            installPackageName = "netsurf-gtk",
+            checkBinaryPath = "usr/bin/netsurf-gtk",
+            approxSizeMb = 12
+        ),
+        UbuntuPackage(
+            id = "chromium",
+            name = "Chromium Web Browser",
+            category = PackageCategory.ESSENTIAL,
+            description = "Tam özellikli Google Chromium tarayıcısı.",
+            installPackageName = "chromium-browser",
+            checkBinaryPath = "usr/bin/chromium-browser",
+            approxSizeMb = 110
         ),
 
         // Geliştirme & Diller
