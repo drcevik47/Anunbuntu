@@ -5,6 +5,8 @@ import android.content.Context
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -80,110 +82,115 @@ import com.example.ui.theme.UbuntuWarmOrange
 
 private const val TOUCH_TO_MOUSE_JS = """
 (function() {
-    if (window.__ubuntuBridgeInstalled) return;
+    if (window.__ubuntuBridgeInstalled) {
+        console.log("[UbuntuARM64] Bridge already loaded, refreshing hooks.");
+        return;
+    }
     window.__ubuntuBridgeInstalled = true;
-    console.log("[UbuntuARM64] Initializing touch-to-mouse tracker...");
+    console.log("[UbuntuARM64] Initializing refined touch-to-mouse bridge...");
 
-    window.__ubuntuMouseMode = 'direct';
+    window.__ubuntuMouseMode = 'direct'; // 'direct' or 'trackpad'
     window.__ubuntuDragMode = false;
     var activeTouchId = null;
-    var startX = 0, startY = 0;
-    var lastX = 200, lastY = 200;
+    var startClientX = 0, startClientY = 0;
+    var lastClientX = 300, lastClientY = 300;
     var touchStartTime = 0;
-    var moved = false;
+    var hasMoved = false;
     var longPressTimer = null;
+    var lastSentRx = -1, lastSentRy = -1;
 
     function getCanvas() {
         return document.getElementById('noVNC_canvas') || document.querySelector('canvas');
     }
 
-    function getTarget() {
-        return getCanvas() || document.getElementById('noVNC_container') || document.body;
+    function getRfb() {
+        if (window.UI && window.UI.rfb) return window.UI.rfb;
+        if (window.rfb) return window.rfb;
+        return null;
     }
 
     function getRemoteCoords(clientX, clientY) {
         var canvas = getCanvas();
         if (!canvas) return { rx: Math.round(clientX), ry: Math.round(clientY) };
         var rect = canvas.getBoundingClientRect();
-        var rfb = window.UI && window.UI.rfb;
+        var rfb = getRfb();
         var fw = (rfb && rfb._fbWidth) || canvas.width || (rect.width > 0 ? rect.width : 1280);
         var fh = (rfb && rfb._fbHeight) || canvas.height || (rect.height > 0 ? rect.height : 720);
-        var scaleX = fw / (rect.width || 1);
-        var scaleY = fh / (rect.height || 1);
-        var rx = Math.max(0, Math.min(fw - 1, Math.round((clientX - rect.left) * scaleX)));
-        var ry = Math.max(0, Math.min(fh - 1, Math.round((clientY - rect.top) * scaleY)));
-        return { rx: rx, ry: ry };
+        var w = rect.width > 0 ? rect.width : fw;
+        var h = rect.height > 0 ? rect.height : fh;
+        var rx = Math.max(0, Math.min(fw - 1, Math.round((clientX - rect.left) * (fw / w))));
+        var ry = Math.max(0, Math.min(fh - 1, Math.round((clientY - rect.top) * (fh / h))));
+        return { rx: rx, ry: ry, fw: fw, fh: fh };
     }
 
-    function sendPointerMove(rx, ry, clientX, clientY) {
-        try {
-            if (window.UI && window.UI.rfb) {
-                var rfb = window.UI.rfb;
+    function sendMouseMove(rx, ry) {
+        if (rx === lastSentRx && ry === lastSentRy) return;
+        lastSentRx = rx;
+        lastSentRy = ry;
+
+        var rfb = getRfb();
+        if (rfb) {
+            try {
                 if (typeof rfb._handleMouseMove === 'function') {
                     rfb._handleMouseMove(rx, ry);
+                    return;
+                } else if (typeof rfb.sendPointerEvent === 'function') {
+                    rfb.sendPointerEvent(rx, ry, window.__ubuntuDragMode ? 1 : 0);
+                    return;
                 }
+            } catch (e) {
+                console.warn("[UbuntuARM64] RFB mouse move error", e);
             }
-        } catch (e) {
-            console.error(e);
         }
 
-        var target = getTarget();
-        if (target) {
+        var canvas = getCanvas() || document.body;
+        if (canvas) {
             var ev = new MouseEvent('mousemove', {
-                clientX: clientX,
-                clientY: clientY,
-                screenX: clientX,
-                screenY: clientY,
-                button: 0,
-                buttons: window.__ubuntuDragMode ? 1 : 0,
+                clientX: lastClientX,
+                clientY: lastClientY,
                 bubbles: true,
                 cancelable: true,
                 view: window
             });
-            target.dispatchEvent(ev);
+            canvas.dispatchEvent(ev);
         }
     }
 
-    function sendPointerButton(rx, ry, clientX, clientY, button, isDown) {
-        try {
-            if (window.UI && window.UI.rfb) {
-                var rfb = window.UI.rfb;
+    function sendMouseButton(rx, ry, button, isDown) {
+        var mask = button === 2 ? 4 : (button === 1 ? 2 : 1);
+        var rfb = getRfb();
+        if (rfb) {
+            try {
                 if (typeof rfb._handleMouseButton === 'function') {
-                    var mask = button === 2 ? 4 : (button === 1 ? 2 : 1);
                     rfb._handleMouseButton(rx, ry, isDown ? 1 : 0, mask);
+                    return;
+                } else if (typeof rfb.sendPointerEvent === 'function') {
+                    rfb.sendPointerEvent(rx, ry, isDown ? mask : 0);
+                    return;
                 }
+            } catch (e) {
+                console.warn("[UbuntuARM64] RFB mouse button error", e);
             }
-        } catch (e) {
-            console.error(e);
         }
 
-        var target = getTarget();
-        if (target) {
+        var canvas = getCanvas() || document.body;
+        if (canvas) {
             var evType = isDown ? 'mousedown' : 'mouseup';
             var ev = new MouseEvent(evType, {
-                clientX: clientX,
-                clientY: clientY,
+                clientX: lastClientX,
+                clientY: lastClientY,
                 button: button,
-                buttons: isDown ? (button === 2 ? 2 : 1) : 0,
+                buttons: isDown ? mask : 0,
                 bubbles: true,
                 cancelable: true,
                 view: window
             });
-            target.dispatchEvent(ev);
+            canvas.dispatchEvent(ev);
             if (!isDown && button === 0) {
-                target.dispatchEvent(new MouseEvent('click', {
-                    clientX: clientX,
-                    clientY: clientY,
+                canvas.dispatchEvent(new MouseEvent('click', {
+                    clientX: lastClientX,
+                    clientY: lastClientY,
                     button: 0,
-                    bubbles: true,
-                    cancelable: true,
-                    view: window
-                }));
-            } else if (!isDown && button === 2) {
-                target.dispatchEvent(new MouseEvent('contextmenu', {
-                    clientX: clientX,
-                    clientY: clientY,
-                    button: 2,
                     bubbles: true,
                     cancelable: true,
                     view: window
@@ -193,57 +200,71 @@ private const val TOUCH_TO_MOUSE_JS = """
     }
 
     window.__ubuntuClick = function(button) {
-        var coords = getRemoteCoords(lastX, lastY);
-        sendPointerButton(coords.rx, coords.ry, lastX, lastY, button, true);
+        var coords = getRemoteCoords(lastClientX, lastClientY);
+        sendMouseMove(coords.rx, coords.ry);
+        sendMouseButton(coords.rx, coords.ry, button, true);
         setTimeout(function() {
-            sendPointerButton(coords.rx, coords.ry, lastX, lastY, button, false);
-        }, 60);
+            sendMouseButton(coords.rx, coords.ry, button, false);
+        }, 80);
     };
 
     window.__ubuntuToggleDrag = function(enable) {
-        window.__ubuntuDragMode = enable;
-        var coords = getRemoteCoords(lastX, lastY);
-        if (enable) {
-            sendPointerButton(coords.rx, coords.ry, lastX, lastY, 0, true);
-        } else {
-            sendPointerButton(coords.rx, coords.ry, lastX, lastY, 0, false);
-        }
+        window.__ubuntuDragMode = !!enable;
+        var coords = getRemoteCoords(lastClientX, lastClientY);
+        sendMouseButton(coords.rx, coords.ry, 0, window.__ubuntuDragMode);
     };
 
     window.__ubuntuSetMode = function(mode) {
         window.__ubuntuMouseMode = mode;
+        console.log("[UbuntuARM64] Mouse mode set to: " + mode);
     };
 
+    // Disable default noVNC touch handlers that fight with our custom pointer tracking
+    function neutralizeNoVncTouch() {
+        var rfb = getRfb();
+        if (rfb) {
+            try {
+                // If RFB has its own touch handler object, disable or replace it
+                if (rfb._gesture) {
+                    rfb._gesture = null;
+                }
+            } catch (e) {}
+        }
+    }
+
+    // Capture touch events at the top window level to guarantee clean, smooth translation
     window.addEventListener('touchstart', function(e) {
+        neutralizeNoVncTouch();
         if (e.touches.length === 1) {
             var t = e.touches[0];
             activeTouchId = t.identifier;
-            startX = t.clientX;
-            startY = t.clientY;
+            startClientX = t.clientX;
+            startClientY = t.clientY;
             touchStartTime = Date.now();
-            moved = false;
+            hasMoved = false;
 
             if (window.__ubuntuMouseMode === 'direct') {
-                lastX = t.clientX;
-                lastY = t.clientY;
-                var coords = getRemoteCoords(lastX, lastY);
-                sendPointerMove(coords.rx, coords.ry, lastX, lastY);
+                lastClientX = t.clientX;
+                lastClientY = t.clientY;
+                var coords = getRemoteCoords(lastClientX, lastClientY);
+                sendMouseMove(coords.rx, coords.ry);
 
                 if (window.__ubuntuDragMode) {
-                    sendPointerButton(coords.rx, coords.ry, lastX, lastY, 0, true);
+                    sendMouseButton(coords.rx, coords.ry, 0, true);
                 }
             }
 
             clearTimeout(longPressTimer);
+            // Long-press opens context menu (Right-click) if finger stayed still
             longPressTimer = setTimeout(function() {
-                if (!moved && activeTouchId !== null && !window.__ubuntuDragMode) {
-                    var c = getRemoteCoords(lastX, lastY);
-                    sendPointerButton(c.rx, c.ry, lastX, lastY, 2, true);
+                if (!hasMoved && activeTouchId !== null && !window.__ubuntuDragMode) {
+                    var c = getRemoteCoords(lastClientX, lastClientY);
+                    sendMouseButton(c.rx, c.ry, 2, true);
                     setTimeout(function() {
-                        sendPointerButton(c.rx, c.ry, lastX, lastY, 2, false);
-                    }, 60);
+                        sendMouseButton(c.rx, c.ry, 2, false);
+                    }, 80);
                 }
-            }, 500);
+            }, 550);
         }
     }, { capture: true, passive: false });
 
@@ -251,27 +272,29 @@ private const val TOUCH_TO_MOUSE_JS = """
         for (var i = 0; i < e.changedTouches.length; i++) {
             var t = e.changedTouches[i];
             if (t.identifier === activeTouchId) {
-                var dist = Math.hypot(t.clientX - startX, t.clientY - startY);
-                if (dist > 4) {
-                    moved = true;
+                var delta = Math.hypot(t.clientX - startClientX, t.clientY - startClientY);
+                if (delta > 6) {
+                    hasMoved = true;
                     clearTimeout(longPressTimer);
                 }
 
                 if (window.__ubuntuMouseMode === 'direct') {
-                    lastX = t.clientX;
-                    lastY = t.clientY;
+                    lastClientX = t.clientX;
+                    lastClientY = t.clientY;
                 } else {
-                    var dx = t.clientX - startX;
-                    var dy = t.clientY - startY;
-                    lastX += dx * 1.3;
-                    lastY += dy * 1.3;
-                    startX = t.clientX;
-                    startY = t.clientY;
+                    // Trackpad relative delta with smooth acceleration
+                    var dx = t.clientX - startClientX;
+                    var dy = t.clientY - startClientY;
+                    lastClientX += dx * 1.2;
+                    lastClientY += dy * 1.2;
+                    startClientX = t.clientX;
+                    startClientY = t.clientY;
                 }
 
-                var coords = getRemoteCoords(lastX, lastY);
-                sendPointerMove(coords.rx, coords.ry, lastX, lastY);
+                var coords = getRemoteCoords(lastClientX, lastClientY);
+                sendMouseMove(coords.rx, coords.ry);
 
+                // Stop browser pull-to-refresh or accidental viewport scroll
                 e.preventDefault();
                 e.stopPropagation();
             }
@@ -283,17 +306,19 @@ private const val TOUCH_TO_MOUSE_JS = """
             var t = e.changedTouches[i];
             if (t.identifier === activeTouchId) {
                 clearTimeout(longPressTimer);
-                var elapsed = Date.now() - touchStartTime;
-                var dist = Math.hypot(t.clientX - startX, t.clientY - startY);
-                var coords = getRemoteCoords(lastX, lastY);
+                var duration = Date.now() - touchStartTime;
+                var totalDist = Math.hypot(t.clientX - startClientX, t.clientY - startClientY);
+                var coords = getRemoteCoords(lastClientX, lastClientY);
 
                 if (window.__ubuntuDragMode) {
-                    sendPointerButton(coords.rx, coords.ry, lastX, lastY, 0, false);
-                } else if (!moved || (elapsed < 320 && dist < 12)) {
-                    sendPointerButton(coords.rx, coords.ry, lastX, lastY, 0, true);
+                    sendMouseButton(coords.rx, coords.ry, 0, false);
+                } else if (!hasMoved && duration < 400 && totalDist < 12) {
+                    // Clean, single, crisp left click
+                    sendMouseMove(coords.rx, coords.ry);
+                    sendMouseButton(coords.rx, coords.ry, 0, true);
                     setTimeout(function() {
-                        sendPointerButton(coords.rx, coords.ry, lastX, lastY, 0, false);
-                    }, 50);
+                        sendMouseButton(coords.rx, coords.ry, 0, false);
+                    }, 60);
                 }
 
                 activeTouchId = null;
@@ -306,15 +331,40 @@ private const val TOUCH_TO_MOUSE_JS = """
         activeTouchId = null;
     }, { capture: true, passive: false });
 
+    function collapseNoVncBar() {
+        try {
+            var bar = document.getElementById('noVNC_control_bar');
+            if (bar && bar.classList.contains('noVNC_open')) {
+                bar.classList.remove('noVNC_open');
+            }
+            if (window.UI && typeof window.UI.closeControlBar === 'function') {
+                window.UI.closeControlBar();
+            }
+        } catch(e) {}
+    }
+    collapseNoVncBar();
+    setTimeout(collapseNoVncBar, 400);
+    setTimeout(collapseNoVncBar, 1200);
+
+    try {
+        if (!document.getElementById('ubuntu_custom_fit')) {
+            var styleEl = document.createElement('style');
+            styleEl.id = 'ubuntu_custom_fit';
+            styleEl.innerHTML = 'html, body { overflow: hidden !important; margin: 0 !important; padding: 0 !important; background: #181824 !important; user-select: none !important; -webkit-user-select: none !important; touch-action: none !important; } #noVNC_canvas { object-fit: contain; touch-action: none !important; }';
+            document.head.appendChild(styleEl);
+        }
+    } catch(e) {}
+
     setInterval(function() {
         try {
-            if (window.UI && window.UI.rfb) {
-                window.UI.rfb.showDotCursor = true;
+            var rfb = getRfb();
+            if (rfb) {
+                rfb.showDotCursor = true;
             }
         } catch(e) {}
     }, 2000);
 
-    console.log("[UbuntuARM64] Touch tracking bridge ready.");
+    console.log("[UbuntuARM64] Touch-to-mouse bridge refined & ready.");
 })();
 """
 
@@ -338,6 +388,8 @@ fun DesktopScreen(
     var showToolbar by remember { mutableStateOf(true) }
     var mouseMode by remember { mutableStateOf("direct") } // "direct" or "trackpad"
     var isDragMode by remember { mutableStateOf(false) }
+
+    var isPageLoading by remember { mutableStateOf(true) }
 
     if (installState !is InstallState.Installed) {
         Column(
@@ -406,7 +458,22 @@ fun DesktopScreen(
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
+                                    isPageLoading = false
                                     view?.evaluateJavascript(TOUCH_TO_MOUSE_JS, null)
+                                }
+
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    error: WebResourceError?
+                                ) {
+                                    super.onReceivedError(view, request, error)
+                                    if (request?.isForMainFrame == true) {
+                                        // VNC/Websockify might need a moment to accept connections; auto retry
+                                        view?.postDelayed({
+                                            view.reload()
+                                        }, 1200)
+                                    }
                                 }
                             }
                             webChromeClient = WebChromeClient()
@@ -417,6 +484,35 @@ fun DesktopScreen(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                // Seamless Dark Loading Overlay while WebView connects
+                if (isPageLoading) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF1E1E2E)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = UbuntuOrange,
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(44.dp)
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = "XFCE4 Masaüstüne Bağlanılıyor...",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
 
                 // Top Floating Toolbar (Collapsible)
                 AnimatedVisibility(
@@ -480,6 +576,21 @@ fun DesktopScreen(
                                     imageVector = Icons.Default.PanTool,
                                     contentDescription = "Pencere Sürükleme",
                                     tint = if (isDragMode) UbuntuOrange else Color.LightGray,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
+
+                            // Quick Left Click
+                            IconButton(
+                                onClick = {
+                                    webViewRef?.evaluateJavascript("window.__ubuntuClick(0);", null)
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mouse,
+                                    contentDescription = "Sol Tık",
+                                    tint = Color.White,
                                     modifier = Modifier.size(17.dp)
                                 )
                             }

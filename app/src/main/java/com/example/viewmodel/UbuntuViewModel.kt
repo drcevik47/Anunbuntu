@@ -20,6 +20,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import java.net.InetSocketAddress
+import java.net.Socket
 
 import com.example.engine.DesktopManager
 import com.example.model.DesktopResolution
@@ -353,8 +357,27 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
             desktopManager.markStarting()
             val startCmd = desktopManager.getStartDesktopCommand()
             sendCommand(startCmd)
-            // Wait for VNC and Websockify sockets to bind
-            delay(2500)
+            
+            // Wait actively until VNC/Websockify port 6080 is open and accepting connections
+            withContext(Dispatchers.IO) {
+                var ready = false
+                val start = System.currentTimeMillis()
+                // Initial wait for PRoot shell to spawn processes
+                try { Thread.sleep(1200) } catch (_: Exception) {}
+                while (!ready && (System.currentTimeMillis() - start < 15000)) {
+                    try {
+                        Socket().use { socket ->
+                            socket.connect(InetSocketAddress("127.0.0.1", 6080), 500)
+                            ready = true
+                        }
+                    } catch (_: Exception) {
+                        try { Thread.sleep(400) } catch (_: Exception) {}
+                    }
+                }
+            }
+
+            // Brief buffer so HTTP server finishes handshake
+            delay(500)
             desktopManager.markRunning()
         }
     }

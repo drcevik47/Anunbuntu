@@ -155,7 +155,7 @@ class DesktopManager(
             vncPort = 5901,
             webPort = 6080,
             resolution = resolution.geometry,
-            url = "http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale"
+            url = "http://127.0.0.1:6080/vnc.html?autoconnect=true&reconnect=true&reconnect_delay=1500&resize=scale"
         )
     }
 
