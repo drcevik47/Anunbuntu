@@ -42,6 +42,7 @@ fun MainScreen(
     val isPRootReady by viewModel.isPRootReady.collectAsState()
     val desktopState by viewModel.desktopState.collectAsState()
     val selectedResolution by viewModel.selectedResolution.collectAsState()
+    val logs by viewModel.logs.collectAsState()
 
     var isDesktopFullscreen by remember { mutableStateOf(false) }
 
@@ -110,7 +111,8 @@ fun MainScreen(
                     onStartInstall = { viewModel.startInstallation() },
                     onCancelInstall = { viewModel.cancelInstallation() },
                     onUninstall = { viewModel.uninstallUbuntu() },
-                    onOpenTerminal = { viewModel.setActiveTab(2) }
+                    onOpenTerminal = { viewModel.setActiveTab(2) },
+                    onOpenLogs = { viewModel.setActiveTab(5) }
                 )
                 2 -> TerminalScreen(
                     terminalLines = terminalLines,
@@ -147,7 +149,15 @@ fun MainScreen(
                     onInstallDesktop = { viewModel.installDesktopEnvironment() },
                     onStartDesktop = { viewModel.startDesktop() },
                     onStopDesktop = { viewModel.stopDesktop() },
-                    onGoToInstall = { viewModel.setActiveTab(1) }
+                    onGoToInstall = { viewModel.setActiveTab(1) },
+                    onOpenLogs = { viewModel.setActiveTab(5) }
+                )
+                5 -> LogViewerScreen(
+                    logs = logs,
+                    onRefreshLogs = { viewModel.fetchSystemLogs() },
+                    onClearLogs = { viewModel.clearLogs() },
+                    onExportLogs = { viewModel.exportLogs() },
+                    onTestBrowser = { viewModel.testRunBrowser() }
                 )
             }
         }

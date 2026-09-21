@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
@@ -66,6 +67,7 @@ fun InstallWizardScreen(
     onCancelInstall: () -> Unit,
     onUninstall: () -> Unit,
     onOpenTerminal: () -> Unit,
+    onOpenLogs: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -481,12 +483,26 @@ fun InstallWizardScreen(
                             )
                         }
                         Spacer(modifier = Modifier.height(14.dp))
-                        Button(
-                            onClick = onStartInstall,
-                            colors = ButtonDefaults.buttonColors(containerColor = UbuntuOrange),
-                            shape = RoundedCornerShape(10.dp)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Yeniden Dene", color = Color.White, fontWeight = FontWeight.Bold)
+                            Button(
+                                onClick = onStartInstall,
+                                colors = ButtonDefaults.buttonColors(containerColor = UbuntuOrange),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("Yeniden Dene", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = onOpenLogs,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFCE93D8))
+                            ) {
+                                Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Hata Loglarını Gör")
+                            }
                         }
                     }
                 }

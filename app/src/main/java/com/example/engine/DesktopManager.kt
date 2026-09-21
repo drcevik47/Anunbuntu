@@ -3,11 +3,10 @@ package com.example.engine
 import android.content.Context
 import com.example.model.DesktopResolution
 import com.example.model.DesktopState
-import kotlinx.coroutines.Dispatchers
+import com.example.model.LogCategory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.withContext
 import java.io.File
 
 class DesktopManager(
@@ -24,6 +23,7 @@ class DesktopManager(
 
     fun setResolution(res: DesktopResolution) {
         _selectedResolution.value = res
+        AppLogManager.info(LogCategory.DESKTOP, "Resolution", "Çözünürlük ayarlandı: ${res.label} (${res.geometry})")
     }
 
     /**
@@ -60,11 +60,14 @@ class DesktopManager(
         val vncDir = File(rootfs, "root/.vnc").apply { if (!exists()) mkdirs() }
         val xstartup = File(vncDir, "xstartup")
 
+        AppLogManager.info(LogCategory.VNC, "Config", "XFCE4 xstartup yapılandırması hazırlanıyor...")
+
         xstartup.writeText(
             """
             #!/bin/sh
             unset SESSION_MANAGER
             unset DBUS_SESSION_BUS_ADDRESS
+            export DISPLAY=:1
             export XKL_XMODMAP_DISABLE=1
             export LANG=C.UTF-8
             export HOME=/root
@@ -73,6 +76,8 @@ class DesktopManager(
             export WEBKIT_FORCE_SANDBOX=0
             export WEBKIT_DISABLE_COMPOSITING_MODE=1
             export WEBKIT_DISABLE_DMABUF_RENDERER=1
+            export G_SLICE=always-malloc
+            export LIBGL_ALWAYS_SOFTWARE=1
 
             # Start DBus session bus required by modern GTK/WebKit/Epiphany
             if command -v dbus-launch >/dev/null 2>&1; then
@@ -117,32 +122,54 @@ class DesktopManager(
 
         configureVncStartup()
 
-        // 1. Browser launcher script
+        AppLogManager.info(LogCategory.DESKTOP, "PrepareFiles", "Masaüstü başlatma ve tarayıcı betikleri hazırlanıyor...")
+
+        // 1. Browser launcher script with comprehensive debugging & fallback
         val launcherFile = File(localBin, "x-browser-launcher")
         launcherFile.writeText(
             """
             #!/bin/sh
+            LOG="/tmp/browser_launch.log"
+            echo "==========================================" >> "${'$'}LOG"
+            echo "[${'$'}(date)] Web Tarayıcısı Başlatma İsteği" >> "${'$'}LOG"
+            echo "Parametreler: ${'$'}@" >> "${'$'}LOG"
+
+            if [ -z "${'$'}DISPLAY" ]; then
+                export DISPLAY=:1
+            fi
+            echo "DISPLAY=${'$'}DISPLAY" >> "${'$'}LOG"
+
+            export HOME=/root
+            export USER=root
             export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
             export WEBKIT_FORCE_SANDBOX=0
             export WEBKIT_DISABLE_COMPOSITING_MODE=1
             export WEBKIT_DISABLE_DMABUF_RENDERER=1
+            export G_SLICE=always-malloc
+            export LIBGL_ALWAYS_SOFTWARE=1
 
             # Ensure DBus session bus is active
             if [ -z "${'$'}DBUS_SESSION_BUS_ADDRESS" ] && command -v dbus-launch >/dev/null 2>&1; then
                 eval ${'$'}(dbus-launch --sh-syntax)
+                echo "DBus Başlatıldı: ${'$'}DBUS_SESSION_BUS_ADDRESS" >> "${'$'}LOG"
             fi
 
-            # Prefer stable lightweight browsers first
+            # Prefer NetSurf (lightweight, zero-sandbox, 100% reliable in PRoot)
             if command -v netsurf-gtk >/dev/null 2>&1; then
-                exec netsurf-gtk "$@"
+                echo "NetSurf GTK çalıştırılıyor..." >> "${'$'}LOG"
+                exec netsurf-gtk "${'$'}@" >> "${'$'}LOG" 2>&1
             elif command -v epiphany-browser >/dev/null 2>&1 || command -v epiphany >/dev/null 2>&1; then
                 BIN=${'$'}(command -v epiphany-browser || command -v epiphany)
-                exec "${'$'}BIN" "$@"
+                echo "Epiphany çalıştırılıyor (${'$'}BIN)..." >> "${'$'}LOG"
+                exec "${'$'}BIN" "${'$'}@" >> "${'$'}LOG" 2>&1
             elif command -v chromium-browser >/dev/null 2>&1; then
-                exec chromium-browser --no-sandbox --disable-gpu --disable-dev-shm-usage "$@"
+                echo "Chromium çalıştırılıyor..." >> "${'$'}LOG"
+                exec chromium-browser --no-sandbox --disable-gpu --disable-dev-shm-usage "${'$'}@" >> "${'$'}LOG" 2>&1
             elif command -v firefox >/dev/null 2>&1; then
-                exec firefox "$@"
+                echo "Firefox çalıştırılıyor..." >> "${'$'}LOG"
+                exec firefox "${'$'}@" >> "${'$'}LOG" 2>&1
             else
+                echo "UYARI: Sistemde hiçbir tarayıcı bulunamadı!" >> "${'$'}LOG"
                 xfce4-terminal -T "Web Tarayıcısı Kurulumu" -e "sh -c 'echo [BILGI] Sistemde henuz kurulu bir grafiksel web tarayicisi bulunamadi.; echo NetSurf GTK kurmak icin Enter tusuna basin...; read; apt-get update && apt-get install -y netsurf-gtk; echo; echo Kurulum Tamamlandi! Artik Web Tarayicisi simgesiyle acabilirsiniz.; read -p \"Kapatmak icin Enter...\"'" 2>/dev/null || true
             fi
             """.trimIndent() + "\n"
@@ -204,7 +231,7 @@ class DesktopManager(
             Type=X-XFCE-Helper
             Name=Web Tarayıcısı
             StartupNotify=true
-            X-XFCE-Binaries=x-browser-launcher;netsurf-gtk;epiphany-browser;epiphany;
+            X-XFCE-Binaries=x-browser-launcher;netsurf-gtk;epiphany-browser;epiphany;chromium-browser;
             X-XFCE-Category=WebBrowser
             X-XFCE-Commands=/usr/local/bin/x-browser-launcher;
             X-XFCE-CommandsWithParameter=/usr/local/bin/x-browser-launcher "%s";
@@ -213,7 +240,7 @@ class DesktopManager(
         File(xdgXfce, "helpers.rc").writeText("WebBrowser=custom-browser\n")
         File(rootXfce, "helpers.rc").writeText("WebBrowser=custom-browser\n")
 
-        // 4. Dedicated start-desktop script
+        // 4. Dedicated start-desktop script with logging
         val geometry = resolution.geometry
         val startDesktopFile = File(localBin, "start-desktop")
         startDesktopFile.writeText(
@@ -222,15 +249,23 @@ class DesktopManager(
             export HOME=/root
             export USER=root
             export LANG=C.UTF-8
+            export DISPLAY=:1
+            LOG="/tmp/desktop_service.log"
+            echo "==========================================" > "${'$'}LOG"
+            echo "[${'$'}(date)] start-desktop çalıştırıldı (Geometri: $geometry)" >> "${'$'}LOG"
 
             # Clean previous VNC & WebSocket instances
-            vncserver -kill :1 2>/dev/null || true
-            pkill -f websockify 2>/dev/null || true
-            pkill -f novnc 2>/dev/null || true
-            rm -rf /tmp/.X11-unix/X1 /tmp/.X1-lock /tmp/.vnc/*.log /tmp/.vnc/*.pid 2>/dev/null || true
+            echo "Önceki VNC ve noVNC oturumları temizleniyor..." >> "${'$'}LOG"
+            vncserver -kill :1 >> "${'$'}LOG" 2>&1 || true
+            pkill -f websockify >> "${'$'}LOG" 2>&1 || true
+            pkill -f novnc >> "${'$'}LOG" 2>&1 || true
+            rm -rf /tmp/.X11-unix/X1 /tmp/.X1-lock /tmp/.vnc/*.pid 2>/dev/null || true
 
             # Start TigerVNC server on display :1 (port 5901)
-            vncserver :1 -geometry $geometry -depth 24 -SecurityTypes None
+            echo "TigerVNC başlatılıyor (:1, port 5901)..." >> "${'$'}LOG"
+            vncserver :1 -geometry $geometry -depth 24 -SecurityTypes None >> "${'$'}LOG" 2>&1
+            VNC_RES=${'$'}?
+            echo "TigerVNC çıkış kodu: ${'$'}VNC_RES" >> "${'$'}LOG"
 
             # Patch noVNC style if present
             if [ -f /usr/share/novnc/app/styles/base.css ]; then
@@ -242,12 +277,14 @@ class DesktopManager(
             fi
 
             # Start noVNC WebSocket bridge on port 6080
+            echo "noVNC köprüsü (Port 6080) başlatılıyor..." >> "${'$'}LOG"
             if [ -d /usr/share/novnc ]; then
-                nohup websockify --web /usr/share/novnc 6080 localhost:5901 >/dev/null 2>&1 &
+                nohup websockify --web /usr/share/novnc 6080 localhost:5901 >> "${'$'}LOG" 2>&1 &
             elif command -v novnc >/dev/null 2>&1; then
-                nohup novnc --listen 6080 --vnc localhost:5901 >/dev/null 2>&1 &
+                nohup novnc --listen 6080 --vnc localhost:5901 >> "${'$'}LOG" 2>&1 &
             fi
 
+            echo ">>> XFCE4 Masaüstü ve noVNC arka planda başlatıldı (Port: 6080)" >> "${'$'}LOG"
             echo ">>> XFCE4 Masaüstü ve noVNC arka planda başlatıldı (Port: 6080)"
             """.trimIndent() + "\n"
         )
@@ -274,6 +311,7 @@ class DesktopManager(
      */
     fun getStartDesktopCommand(resolution: DesktopResolution = _selectedResolution.value): String {
         prepareDesktopFiles(resolution)
+        AppLogManager.info(LogCategory.DESKTOP, "StartCmd", "Masaüstü başlatma komutu oluşturuldu (start-desktop).")
         return "chmod +x /usr/local/bin/start-desktop /usr/local/bin/stop-desktop /usr/local/bin/x-browser-launcher 2>/dev/null; /usr/local/bin/start-desktop"
     }
 
@@ -281,39 +319,46 @@ class DesktopManager(
      * Generates command string to stop VNC and desktop processes
      */
     fun getStopDesktopCommand(): String {
+        AppLogManager.info(LogCategory.DESKTOP, "StopCmd", "Masaüstü durdurma komutu oluşturuldu (stop-desktop).")
         return "chmod +x /usr/local/bin/stop-desktop 2>/dev/null; /usr/local/bin/stop-desktop"
     }
 
     /**
-     * Command to install XFCE4, TigerVNC and noVNC inside Ubuntu
+     * Command to install XFCE4, TigerVNC, noVNC and browsers inside Ubuntu
      */
     fun getInstallDesktopCommand(): String {
+        AppLogManager.info(LogCategory.APT, "InstallDesktop", "XFCE4, TigerVNC, noVNC ve Tarayıcı paketleri kurulum komutu hazırlanıyor...")
         return "rm -f /etc/apt/apt.conf.d/00_debconf 2>/dev/null; " +
                "export DEBIAN_FRONTEND=noninteractive; " +
                "chmod -R 755 /usr/share/debconf /var/lib/dpkg/info 2>/dev/null; " +
                "apt-get update && " +
                "apt-get install -y --no-install-recommends " +
-               "xfce4 xfce4-terminal tigervnc-standalone-server tigervnc-common novnc websockify dbus-x11 adwaita-icon-theme epiphany-browser"
+               "xfce4 xfce4-terminal tigervnc-standalone-server tigervnc-common novnc websockify dbus-x11 adwaita-icon-theme netsurf-gtk epiphany-browser"
     }
 
     fun markRunning(resolution: DesktopResolution = _selectedResolution.value) {
+        val url = "http://127.0.0.1:6080/vnc.html?autoconnect=true&reconnect=true&reconnect_delay=1500&resize=scale"
         _desktopState.value = DesktopState.Running(
             vncPort = 5901,
             webPort = 6080,
             resolution = resolution.geometry,
-            url = "http://127.0.0.1:6080/vnc.html?autoconnect=true&reconnect=true&reconnect_delay=1500&resize=scale"
+            url = url
         )
+        AppLogManager.success(LogCategory.DESKTOP, "State", "Masaüstü oturumu AKTİF. WebView URL: $url")
     }
 
     fun markStopped() {
         _desktopState.value = DesktopState.Stopped
+        AppLogManager.info(LogCategory.DESKTOP, "State", "Masaüstü oturumu DURDURULDU.")
     }
 
     fun markStarting() {
         _desktopState.value = DesktopState.Starting
+        AppLogManager.info(LogCategory.DESKTOP, "State", "Masaüstü oturumu başlatılıyor...")
     }
 
     fun markError(msg: String) {
         _desktopState.value = DesktopState.Error(msg)
+        AppLogManager.error(LogCategory.DESKTOP, "StateError", msg)
     }
 }

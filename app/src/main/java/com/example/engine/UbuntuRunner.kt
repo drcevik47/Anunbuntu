@@ -241,6 +241,12 @@ class UbuntuRunner(
                     val exitCode = process.waitFor()
                     _isRunningFlow.value = false
                     _isExecuting.value = false
+                    AppLogManager.warn(
+                        com.example.model.LogCategory.PROOT,
+                        "ProcessExit",
+                        "Ubuntu PRoot süreci sonlandı. Çıkış Kodu: $exitCode",
+                        if (exitCode == 137) "Kod 137 genellikle SIGKILL veya bellek/alt süreç sınırından kaynaklanır." else null
+                    )
                     _outputFlow.emit(
                         TerminalOutputLine(
                             text = "\n[İşlem sonlandı (Çıkış Kodu: $exitCode)]",
@@ -254,6 +260,7 @@ class UbuntuRunner(
         } catch (e: Exception) {
             _isRunningFlow.value = false
             _isExecuting.value = false
+            AppLogManager.error(com.example.model.LogCategory.PROOT, "StartFail", "Konsol başlatma hatası: ${e.localizedMessage}")
             _outputFlow.emit(
                 TerminalOutputLine(
                     text = "Konsol başlatma hatası: ${e.localizedMessage}",
@@ -337,6 +344,11 @@ class UbuntuRunner(
             _currentWorkingDir.value = if (cwd == "/root") "~" else cwd
 
             if (exitCode != 0) {
+                AppLogManager.warn(
+                    com.example.model.LogCategory.PROOT,
+                    "CommandExit",
+                    "Komut çıkış kodu: $exitCode, dizin: $cwd"
+                )
                 _outputFlow.emit(
                     TerminalOutputLine(
                         text = "[Komut $exitCode hata kodu ile sonlandı]",
@@ -345,6 +357,9 @@ class UbuntuRunner(
                 )
             }
         } else if (line.isNotEmpty()) {
+            if (type == LineType.STDERR) {
+                AppLogManager.warn(com.example.model.LogCategory.PROOT, "STDERR", line)
+            }
             _outputFlow.emit(TerminalOutputLine(text = line, type = type))
         }
     }
@@ -357,6 +372,7 @@ class UbuntuRunner(
 
         try {
             _isExecuting.value = true
+            AppLogManager.info(com.example.model.LogCategory.PROOT, "Command", "# $trimmed")
             _outputFlow.emit(TerminalOutputLine(text = "# $trimmed", type = LineType.STDIN))
 
             // Append double newline and unique sentinel echo:

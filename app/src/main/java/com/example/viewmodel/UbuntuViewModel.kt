@@ -67,8 +67,47 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
     val desktopState: StateFlow<DesktopState> = desktopManager.desktopState
     val selectedResolution: StateFlow<DesktopResolution> = desktopManager.selectedResolution
 
-    private val _activeTab = MutableStateFlow(0) // 0: Sistem, 1: Kurulum, 2: Terminal, 3: Paketler, 4: Masaüstü
+    val logs = com.example.engine.AppLogManager.logs
+
+    private val _activeTab = MutableStateFlow(0) // 0: Sistem, 1: Kurulum, 2: Terminal, 3: Paketler, 4: Masaüstü, 5: Loglar
     val activeTab: StateFlow<Int> = _activeTab.asStateFlow()
+
+    fun setActiveTab(tab: Int) {
+        _activeTab.value = tab
+        if (tab == 5) {
+            fetchSystemLogs()
+        }
+    }
+
+    fun fetchSystemLogs() {
+        viewModelScope.launch(Dispatchers.IO) {
+            com.example.engine.AppLogManager.fetchUbuntuSystemLogs(installer.rootfsDir)
+        }
+    }
+
+    fun clearLogs() {
+        com.example.engine.AppLogManager.clear()
+    }
+
+    fun exportLogs(): String = com.example.engine.AppLogManager.exportLogsText()
+
+    fun testRunBrowser() {
+        viewModelScope.launch {
+            com.example.engine.AppLogManager.info(
+                com.example.model.LogCategory.BROWSER,
+                "TestRun",
+                "Tarayıcı terminal ortamında doğrudan test ediliyor..."
+            )
+            if (!runner.isRunning) {
+                runner.startSession(viewModelScope)
+                delay(1000)
+            }
+            val testCmd = "export DISPLAY=:1; echo '=== Browser Test ==='; which netsurf-gtk epiphany-browser chromium-browser firefox; /usr/local/bin/x-browser-launcher --help 2>&1 | head -n 10; cat /tmp/browser_launch.log 2>/dev/null | tail -n 25"
+            sendCommand(testCmd)
+            delay(2500)
+            fetchSystemLogs()
+        }
+    }
 
     private var installJob: Job? = null
 
@@ -114,10 +153,6 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun setActiveTab(index: Int) {
-        _activeTab.value = index
-    }
-
     fun selectDistro(distro: UbuntuDistro) {
         if (_installState.value !is InstallState.Downloading && _installState.value !is InstallState.Extracting) {
             _selectedDistro.value = distro
@@ -134,6 +169,12 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
         val distro = _selectedDistro.value
         installJob = viewModelScope.launch {
             try {
+                com.example.engine.AppLogManager.info(
+                    com.example.model.LogCategory.SYSTEM,
+                    "Install",
+                    "${distro.name} indirmesi başlatılıyor (${distro.downloadUrl})..."
+                )
+
                 // 1. Download phase
                 _installState.value = InstallState.Downloading(
                     distro = distro,
@@ -153,6 +194,12 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
                     )
                 }
 
+                com.example.engine.AppLogManager.info(
+                    com.example.model.LogCategory.SYSTEM,
+                    "Install",
+                    "İndirme tamamlandı: ${archiveFile.name} (~${archiveFile.length() / (1024 * 1024)} MB). Arşiv açılıyor..."
+                )
+
                 // 2. Extract phase
                 _installState.value = InstallState.Extracting(
                     distro = distro,
@@ -171,6 +218,11 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
                         )
                     },
                     onConfiguring = { step ->
+                        com.example.engine.AppLogManager.info(
+                            com.example.model.LogCategory.SYSTEM,
+                            "Configuring",
+                            step
+                        )
                         _installState.value = InstallState.Configuring(
                             distro = distro,
                             currentStep = step
@@ -187,6 +239,12 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
                     totalSizeMb = rootfsSize
                 )
 
+                com.example.engine.AppLogManager.success(
+                    com.example.model.LogCategory.SYSTEM,
+                    "Install",
+                    "${distro.name} başarıyla kuruldu (~${rootfsSize} MB)."
+                )
+
                 // Add welcome log to terminal
                 _terminalLines.update {
                     it + TerminalOutputLine(
@@ -200,9 +258,17 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
                 startTerminal("uname -a && cat /etc/os-release")
 
             } catch (e: Exception) {
+                val errorMsg = e.localizedMessage ?: "Kurulum sırasında beklenmeyen bir hata oluştu."
+                val stack = e.stackTraceToString()
+                com.example.engine.AppLogManager.error(
+                    com.example.model.LogCategory.SYSTEM,
+                    "InstallError",
+                    errorMsg,
+                    stack.take(1000)
+                )
                 _installState.value = InstallState.Error(
-                    message = e.localizedMessage ?: "Kurulum sırasında beklenmeyen bir hata oluştu.",
-                    details = e.stackTraceToString().take(300)
+                    message = errorMsg,
+                    details = stack.take(300)
                 )
             }
         }
@@ -384,8 +450,20 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
 
             if (portReady) {
                 delay(500)
+                com.example.engine.AppLogManager.success(
+                    com.example.model.LogCategory.DESKTOP,
+                    "DesktopReady",
+                    "XFCE4 & noVNC servisi hazır (Port 6080 aktif)."
+                )
                 desktopManager.markRunning()
             } else {
+                com.example.engine.AppLogManager.error(
+                    com.example.model.LogCategory.DESKTOP,
+                    "DesktopTimeout",
+                    "Port 6080 (noVNC/Websockify) zaman aşımına uğradı. Servis yanıt vermiyor.",
+                    "Xvnc veya websockify süreci başlatılamamış olabilir. Hata loglarını kontrol edin."
+                )
+                fetchSystemLogs()
                 desktopManager.markError("Masaüstü servisi (Port 6080) henüz hazır değil. Lütfen 'Yeniden Başlat' butonuna dokunun.")
             }
         }

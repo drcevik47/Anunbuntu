@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DesktopWindows
 import androidx.compose.material.icons.filled.Info
@@ -134,7 +135,8 @@ fun UbuntuHeader(
                 Triple("2. Kurulum", Icons.Default.CheckCircle, "tab_install"),
                 Triple("3. Terminal", Icons.Default.Terminal, "tab_terminal"),
                 Triple("4. Paketler", Icons.Default.Widgets, "tab_packages"),
-                Triple("5. Masaüstü", Icons.Default.DesktopWindows, "tab_desktop")
+                Triple("5. Masaüstü", Icons.Default.DesktopWindows, "tab_desktop"),
+                Triple("6. Loglar", Icons.Default.BugReport, "tab_logs")
             )
 
             ScrollableTabRow(

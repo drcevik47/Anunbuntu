@@ -5,6 +5,7 @@ import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
+import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -33,6 +34,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdsClick
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DesktopWindows
@@ -517,6 +519,7 @@ fun DesktopScreen(
     onStartDesktop: () -> Unit,
     onStopDesktop: () -> Unit,
     onGoToInstall: () -> Unit,
+    onOpenLogs: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -609,6 +612,12 @@ fun DesktopScreen(
                                 ) {
                                     super.onReceivedError(view, request, error)
                                     if (request?.isForMainFrame == true) {
+                                        val desc = error?.description?.toString() ?: "Bağlantı reddedildi veya zaman aşımı"
+                                        com.example.engine.AppLogManager.error(
+                                            com.example.model.LogCategory.WEBVIEW,
+                                            "WebViewConnect",
+                                            "WebView yükleme hatası: $desc (Deneme: $retryCount/3)"
+                                        )
                                         if (retryCount < 3) {
                                             retryCount++
                                             view?.postDelayed({
@@ -621,7 +630,27 @@ fun DesktopScreen(
                                     }
                                 }
                             }
-                            webChromeClient = WebChromeClient()
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                                    if (consoleMessage != null) {
+                                        val level = when (consoleMessage.messageLevel()) {
+                                            ConsoleMessage.MessageLevel.ERROR -> com.example.model.LogLevel.ERROR
+                                            ConsoleMessage.MessageLevel.WARNING -> com.example.model.LogLevel.WARN
+                                            else -> com.example.model.LogLevel.INFO
+                                        }
+                                        if (level == com.example.model.LogLevel.ERROR || level == com.example.model.LogLevel.WARN) {
+                                            com.example.engine.AppLogManager.log(
+                                                level,
+                                                com.example.model.LogCategory.WEBVIEW,
+                                                "noVNC-JS",
+                                                consoleMessage.message() ?: "",
+                                                "Kaynak: ${consoleMessage.sourceId()}:${consoleMessage.lineNumber()}"
+                                            )
+                                        }
+                                    }
+                                    return super.onConsoleMessage(consoleMessage)
+                                }
+                            }
 
                             loadUrl(desktopState.url)
                             webViewRef = this
@@ -699,19 +728,34 @@ fun DesktopScreen(
                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Button(
-                                    onClick = {
-                                        connectionFailed = false
-                                        retryCount = 0
-                                        isPageLoading = true
-                                        onStartDesktop()
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = UbuntuOrange),
-                                    shape = RoundedCornerShape(10.dp)
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Masaüstünü Yeniden Başlat", color = Color.White, fontWeight = FontWeight.Bold)
+                                    Button(
+                                        onClick = {
+                                            connectionFailed = false
+                                            retryCount = 0
+                                            isPageLoading = true
+                                            onStartDesktop()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = UbuntuOrange),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Yeniden Başlat", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = onOpenLogs,
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFCE93D8))
+                                    ) {
+                                        Icon(Icons.Default.BugReport, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Logları Gör")
+                                    }
                                 }
                             }
                         }
@@ -869,6 +913,14 @@ fun DesktopScreen(
                                 )
                             }
 
+                            // Logs shortcut
+                            IconButton(
+                                onClick = onOpenLogs,
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(Icons.Default.BugReport, contentDescription = "Logları Gör", tint = Color(0xFFCE93D8), modifier = Modifier.size(16.dp))
+                            }
+
                             // Minimize toolbar toggle
                             IconButton(
                                 onClick = { showToolbar = false },
@@ -937,6 +989,71 @@ fun DesktopScreen(
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+
+        is DesktopState.Error -> {
+            Column(
+                modifier = modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2B1B26))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BugReport,
+                            contentDescription = "Hata",
+                            tint = Color(0xFFEF5350),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Masaüstü Servisi Başlatılamadı",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = desktopState.message,
+                            fontSize = 13.sp,
+                            color = Color(0xFFFFCDD2),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = onStartDesktop,
+                                colors = ButtonDefaults.buttonColors(containerColor = UbuntuOrange),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Yeniden Başlat", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = onOpenLogs,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFCE93D8))
+                            ) {
+                                Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Logları İncele")
+                            }
+                        }
+                    }
+                }
             }
         }
 
