@@ -46,11 +46,12 @@ object UbuntuDistros {
         codename = "Bookworm",
         version = "12",
         downloadUrls = listOf(
-            "https://raw.githubusercontent.com/debuerreotype/docker-debian-artifacts/dist-arm64v8/bookworm/rootfs.tar.xz",
-            "https://images.linuxcontainers.org/images/debian/bookworm/arm64/default/rootfs.tar.xz"
+            "https://raw.githubusercontent.com/debuerreotype/docker-debian-artifacts/dist-arm64v8/bookworm/oci/blobs/rootfs.tar.gz",
+            "https://raw.githubusercontent.com/debuerreotype/docker-debian-artifacts/dist-arm64v8/stable/oci/blobs/rootfs.tar.gz",
+            "https://raw.githubusercontent.com/debuerreotype/docker-debian-artifacts/dist-arm64v8/bookworm/slim/oci/blobs/rootfs.tar.gz"
         ),
-        approxDownloadMb = 34,
-        approxInstalledMb = 95,
+        approxDownloadMb = 46,
+        approxInstalledMb = 145,
         description = "Snap içermeyen saf Debian. Sıfır paket sorunu, kusursuz Synaptic market deneyimi ve tam uyumluluk.",
         isLts = true
     )
@@ -61,12 +62,11 @@ object UbuntuDistros {
         codename = "Jammy Jellyfish",
         version = "22.04",
         downloadUrls = listOf(
+            "https://partner-images.canonical.com/core/jammy/current/ubuntu-jammy-core-cloudimg-arm64-root.tar.gz",
             "https://cdimage.ubuntu.com/ubuntu-base/releases/jammy/release/ubuntu-base-22.04-base-arm64.tar.gz",
-            "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-arm64.tar.gz",
-            "https://cdimage.ubuntu.com/ubuntu-base/daily/current/jammy-base-arm64.tar.gz",
-            "https://mirrors.kernel.org/ubuntu-cdimage/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-arm64.tar.gz"
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04.5/release/ubuntu-base-22.04.5-base-arm64.tar.gz"
         ),
-        approxDownloadMb = 29,
+        approxDownloadMb = 28,
         approxInstalledMb = 92,
         description = "Ubuntu LTS sürümü.",
         isLts = true
@@ -78,13 +78,11 @@ object UbuntuDistros {
         codename = "Noble Numbat",
         version = "24.04",
         downloadUrls = listOf(
-            "https://cdimage.ubuntu.com/ubuntu-base/releases/noble/release/ubuntu-base-24.04-base-arm64.tar.gz",
-            "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04-base-arm64.tar.gz",
-            "https://cdimage.ubuntu.com/ubuntu-base/daily/current/noble-base-arm64.tar.gz",
-            "https://mirrors.kernel.org/ubuntu-cdimage/ubuntu-base/releases/24.04/release/ubuntu-base-24.04-base-arm64.tar.gz"
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.5-base-arm64.tar.gz",
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.4-base-arm64.tar.gz"
         ),
-        approxDownloadMb = 31,
-        approxInstalledMb = 98,
+        approxDownloadMb = 32,
+        approxInstalledMb = 105,
         description = "Güncel Noble sürümü.",
         isLts = true
     )
