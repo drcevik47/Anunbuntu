@@ -2,6 +2,7 @@ package com.example.model
 
 enum class PackageCategory(val title: String) {
     ESSENTIAL("Temel Araçlar"),
+    DESKTOP("Masaüstü & Ofis"),
     DEVELOPMENT("Geliştirme & Diller"),
     SYSTEM("Sistem & İzleme"),
     NETWORK("Ağ & İletişim")
@@ -159,6 +160,53 @@ object PredefinedPackages {
             installPackageName = "net-tools iputils-ping",
             checkBinaryPath = "bin/netstat",
             approxSizeMb = 5
+        ),
+
+        // Masaüstü & Ofis
+        UbuntuPackage(
+            id = "mousepad",
+            name = "Mousepad Metin Düzenleyici",
+            category = PackageCategory.DESKTOP,
+            description = "XFCE için hızlı, hafif grafiksel metin ve not düzenleyici.",
+            installPackageName = "mousepad",
+            checkBinaryPath = "usr/bin/mousepad",
+            approxSizeMb = 4
+        ),
+        UbuntuPackage(
+            id = "file_roller",
+            name = "Arşiv Yöneticisi (File Roller & Unrar)",
+            category = PackageCategory.DESKTOP,
+            description = "Zip, Tar, Gz, 7z ve Rar arşivlerini açıp çıkarma aracı.",
+            installPackageName = "file-roller p7zip-full unrar-free unzip",
+            checkBinaryPath = "usr/bin/file-roller",
+            approxSizeMb = 15
+        ),
+        UbuntuPackage(
+            id = "libreoffice",
+            name = "LibreOffice Writer & Calc",
+            category = PackageCategory.DESKTOP,
+            description = "Tam özellikli açık kaynak ofis paketi (Word, Excel, Sunum).",
+            installPackageName = "libreoffice-writer libreoffice-calc libreoffice-gtk3",
+            checkBinaryPath = "usr/bin/libreoffice",
+            approxSizeMb = 180
+        ),
+        UbuntuPackage(
+            id = "vlc",
+            name = "VLC Medya Oynatıcı",
+            category = PackageCategory.DESKTOP,
+            description = "Tüm video ve ses formatlarını oynatan güçlü medya oynatıcı.",
+            installPackageName = "vlc",
+            checkBinaryPath = "usr/bin/vlc",
+            approxSizeMb = 60
+        ),
+        UbuntuPackage(
+            id = "box64",
+            name = "Box64 (x86_64 Emülatörü - Steam Desteği)",
+            category = PackageCategory.DESKTOP,
+            description = "ARM64 üzerinde x86_64 Linux oyun ve programlarını (Steam vb.) çalıştırma emülatörü.",
+            installPackageName = "box64-android",
+            checkBinaryPath = "usr/local/bin/box64",
+            approxSizeMb = 25
         )
     )
 }

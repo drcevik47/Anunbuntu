@@ -360,6 +360,8 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
                 val optBin = File(rootfs, "opt/firefox/firefox")
                 val usrBin = File(rootfs, "usr/bin/firefox")
                 ppaBin.exists() || optBin.exists() || (usrBin.exists() && !usrBin.readText().contains("snap"))
+            } else if (pkg.id == "box64") {
+                File(rootfs, "usr/local/bin/box64").exists() || File(rootfs, "usr/bin/box64").exists()
             } else {
                 File(rootfs, pkg.checkBinaryPath).exists()
             }
@@ -412,6 +414,17 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
                 chmod +x /root/Desktop/Firefox.desktop;
                 echo ">>> Firefox başarıyla kuruldu ve masaüstü simgesi eklendi!"
                 """.trimIndent().replace("\n", " ")
+            } else if (pkg.id == "box64") {
+                // Official Box64 Debian/Ubuntu ARM64 repo
+                """
+                echo ">>> Box64 (x86_64 Emülatörü) Kuruluyor...";
+                export DEBIAN_FRONTEND=noninteractive;
+                apt-get update && apt-get install -y wget gpg;
+                wget -qO- https://ryanfortner.github.io/box64-debs/KEY.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/box64-debs-archive-keyring.gpg 2>/dev/null;
+                echo "deb [signed-by=/etc/apt/trusted.gpg.d/box64-debs-archive-keyring.gpg] https://ryanfortner.github.io/box64-debs/debian ./ " > /etc/apt/sources.list.d/box64.list;
+                apt-get update && apt-get install -y box64-android;
+                echo ">>> Box64 başarıyla kuruldu! x86_64 ikilileri çalıştırılabilir."
+                """.trimIndent().replace("\n", " ")
             } else {
                 "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y ${pkg.installPackageName}"
             }
@@ -445,6 +458,40 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             sendCommand("apt-get clean && rm -rf /var/lib/apt/lists/*")
             checkPackageStatuses()
+        }
+    }
+
+    /**
+     * One-click full desktop workstation installation:
+     * Installs File Roller, Mousepad, LibreOffice, VLC, Media Codecs, and NetSurf
+     */
+    fun installFullDesktopSuite() {
+        if (!installer.isInstalled()) return
+        viewModelScope.launch {
+            _activeTab.value = 2 // Go to terminal to see live installation
+            val suiteCmd = """
+            echo "==================================================";
+            echo ">>> TAM MASAÜSTÜ LİNUX PAKETİ (DESKTOP SUITE) KURULUYOR";
+            echo ">>> Paketler: Ofis, Dosya Arşivleyici, Metin Düzenleyici, VLC, Web";
+            echo "==================================================";
+            export DEBIAN_FRONTEND=noninteractive;
+            apt-get update && apt-get install -y \
+                mousepad \
+                file-roller p7zip-full unrar-free unzip \
+                netsurf-gtk \
+                libreoffice-writer libreoffice-calc libreoffice-gtk3 \
+                vlc fonts-dejavu fonts-liberation;
+            desktopManager.prepareDesktopFiles();
+            echo "";
+            echo ">>> TEBRİKLER! Tam Masaüstü Linux Paketi Başarıyla Kuruldu.";
+            echo ">>> Masaüstü sekmesine geçip oturumu başlatabilirsiniz.";
+            """.trimIndent().replace("\n", " ")
+
+            if (!runner.isRunning) {
+                runner.startSession(viewModelScope, suiteCmd)
+            } else {
+                sendCommand(suiteCmd)
+            }
         }
     }
 

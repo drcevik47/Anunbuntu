@@ -138,6 +138,22 @@ class DesktopManager(
             )
         }
 
+        // Ensure full Ubuntu ports repositories (main, universe, multiverse, restricted) are enabled
+        try {
+            val sourcesList = File(rootfs, "etc/apt/sources.list")
+            val currentSources = if (sourcesList.exists()) sourcesList.readText() else ""
+            if (!currentSources.contains("universe") || !currentSources.contains("multiverse")) {
+                sourcesList.writeText(
+                    """
+                    deb http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe multiverse
+                    deb http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe multiverse
+                    deb http://ports.ubuntu.com/ubuntu-ports/ jammy-security main restricted universe multiverse
+                    deb http://ports.ubuntu.com/ubuntu-ports/ jammy-backports main restricted universe multiverse
+                    """.trimIndent() + "\n"
+                )
+            }
+        } catch (_: Exception) {}
+
         configureVncStartup()
 
         AppLogManager.info(LogCategory.DESKTOP, "PrepareFiles", "Masaüstü başlatma ve tarayıcı betikleri hazırlanıyor...")
@@ -278,6 +294,78 @@ class DesktopManager(
             """.trimIndent() + "\n"
         )
         termDesktop.setExecutable(true, false)
+
+        // Dosya Yöneticisi (Thunar)
+        val filesDesktop = File(desktopDir, "Files.desktop")
+        filesDesktop.writeText(
+            """
+            [Desktop Entry]
+            Version=1.0
+            Type=Application
+            Name=Dosyalar (Thunar)
+            Comment=Dosyaları ve Dizinleri Yönetin
+            Exec=thunar /root
+            Icon=system-file-manager
+            Terminal=false
+            Categories=System;FileManager;
+            StartupNotify=true
+            """.trimIndent() + "\n"
+        )
+        filesDesktop.setExecutable(true, false)
+
+        // Metin Düzenleyici (Mousepad / Geany)
+        val editorDesktop = File(desktopDir, "Editor.desktop")
+        editorDesktop.writeText(
+            """
+            [Desktop Entry]
+            Version=1.0
+            Type=Application
+            Name=Metin Düzenleyici
+            Comment=Notlar ve Kod Dosyalarını Düzenle
+            Exec=sh -c 'if command -v mousepad >/dev/null 2>&1; then mousepad; elif command -v geany >/dev/null 2>&1; then geany; else xfce4-terminal -e nano; fi'
+            Icon=accessories-text-editor
+            Terminal=false
+            Categories=Utility;TextEditor;
+            StartupNotify=true
+            """.trimIndent() + "\n"
+        )
+        editorDesktop.setExecutable(true, false)
+
+        // Medya Oynatıcı / VLC
+        val mediaDesktop = File(desktopDir, "VLC.desktop")
+        mediaDesktop.writeText(
+            """
+            [Desktop Entry]
+            Version=1.0
+            Type=Application
+            Name=Medya Oynatıcı
+            Comment=Müzik ve Video Oynatıcı
+            Exec=sh -c 'if command -v vlc >/dev/null 2>&1; then vlc; elif command -v audacious >/dev/null 2>&1; then audacious; else xfce4-terminal -e "echo Medya oynatici icin apt install vlc calistirabilirsiniz; read"; fi'
+            Icon=vlc
+            Terminal=false
+            Categories=AudioVideo;Player;
+            StartupNotify=true
+            """.trimIndent() + "\n"
+        )
+        mediaDesktop.setExecutable(true, false)
+
+        // LibreOffice Ofis Paketi
+        val officeDesktop = File(desktopDir, "Office.desktop")
+        officeDesktop.writeText(
+            """
+            [Desktop Entry]
+            Version=1.0
+            Type=Application
+            Name=LibreOffice
+            Comment=Ofis ve Belge Paketi (Word, Excel)
+            Exec=sh -c 'if command -v libreoffice >/dev/null 2>&1; then libreoffice; else xfce4-terminal -e "echo LibreOffice icin Paketler menusunden veya apt install libreoffice calistirabilirsiniz; read"; fi'
+            Icon=libreoffice-main
+            Terminal=false
+            Categories=Office;
+            StartupNotify=true
+            """.trimIndent() + "\n"
+        )
+        officeDesktop.setExecutable(true, false)
 
         // Delete old broken desktop icon if exists
         File(desktopDir, "Epiphany.desktop").delete()

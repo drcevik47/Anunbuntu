@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Memory
@@ -79,6 +80,7 @@ fun PackageManagerScreen(
     onRunAptUpdate: () -> Unit,
     onRunAptUpgrade: () -> Unit,
     onRunAptClean: () -> Unit,
+    onInstallDesktopSuite: () -> Unit,
     onGoToTerminal: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -212,6 +214,24 @@ fun PackageManagerScreen(
                         BadgePill("force-unsafe-io ✓")
                         BadgePill("01_no_sandbox ✓")
                         BadgePill("nosnap ✓")
+                        BadgePill("universe/multiverse ✓")
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // One-click full desktop installation button
+                    Button(
+                        onClick = onInstallDesktopSuite,
+                        colors = ButtonDefaults.buttonColors(containerColor = UbuntuWarmOrange),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Computer, contentDescription = null, modifier = Modifier.size(20.dp), tint = Color.White)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text("Tam Masaüstü Paketini Kur", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Ofis (LibreOffice), VLC, Metin Editörü, Arşiv Açıcı", color = Color(0xFFFFECB3), fontSize = 10.sp)
+                        }
                     }
 
                     if (!isPRootReady) {
@@ -337,6 +357,7 @@ private fun PackageItemCard(
 ) {
     val categoryIcon: ImageVector = when (pkg.category) {
         PackageCategory.ESSENTIAL -> Icons.Default.Build
+        PackageCategory.DESKTOP -> Icons.Default.Computer
         PackageCategory.DEVELOPMENT -> Icons.Default.Code
         PackageCategory.SYSTEM -> Icons.Default.Memory
         PackageCategory.NETWORK -> Icons.Default.Language

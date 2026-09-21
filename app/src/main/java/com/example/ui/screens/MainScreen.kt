@@ -137,6 +137,7 @@ fun MainScreen(
                     onRunAptUpdate = { viewModel.runAptUpdate() },
                     onRunAptUpgrade = { viewModel.runAptUpgrade() },
                     onRunAptClean = { viewModel.runAptClean() },
+                    onInstallDesktopSuite = { viewModel.installFullDesktopSuite() },
                     onGoToTerminal = { viewModel.setActiveTab(2) }
                 )
                 4 -> DesktopScreen(
