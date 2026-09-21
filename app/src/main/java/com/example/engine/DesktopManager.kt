@@ -120,6 +120,24 @@ class DesktopManager(
         val xdgXfce = File(rootfs, "etc/xdg/xfce4").apply { if (!exists()) mkdirs() }
         val rootXfce = File(rootfs, "root/.config/xfce4").apply { if (!exists()) mkdirs() }
 
+        // Ensure snap is permanently blocked in existing rootfs as well
+        val aptPrefDir = File(rootfs, "etc/apt/preferences.d").apply { if (!exists()) mkdirs() }
+        val noSnapPref = File(aptPrefDir, "nosnap.pref")
+        if (!noSnapPref.exists()) {
+            noSnapPref.writeText(
+                """
+                # Snap paketlerini kalici olarak engelle
+                Package: snapd
+                Pin: release *
+                Pin-Priority: -10
+
+                Package: snapd:*
+                Pin: release *
+                Pin-Priority: -10
+                """.trimIndent() + "\n"
+            )
+        }
+
         configureVncStartup()
 
         AppLogManager.info(LogCategory.DESKTOP, "PrepareFiles", "Masaüstü başlatma ve tarayıcı betikleri hazırlanıyor...")
@@ -154,8 +172,14 @@ class DesktopManager(
                 echo "DBus Başlatıldı: ${'$'}DBUS_SESSION_BUS_ADDRESS" >> "${'$'}LOG"
             fi
 
-            # Prefer NetSurf (lightweight, zero-sandbox, 100% reliable in PRoot)
-            if command -v netsurf-gtk >/dev/null 2>&1; then
+            # Check for Firefox (supports PPA /usr/bin/firefox, /opt/firefox/firefox, or /usr/lib/firefox/firefox)
+            if [ -x /usr/bin/firefox ] && ! grep -q "snap" /usr/bin/firefox 2>/dev/null; then
+                echo "Firefox çalıştırılıyor (/usr/bin/firefox)..." >> "${'$'}LOG"
+                exec /usr/bin/firefox "${'$'}@" >> "${'$'}LOG" 2>&1
+            elif [ -x /opt/firefox/firefox ]; then
+                echo "Firefox çalıştırılıyor (/opt/firefox/firefox)..." >> "${'$'}LOG"
+                exec /opt/firefox/firefox "${'$'}@" >> "${'$'}LOG" 2>&1
+            elif command -v netsurf-gtk >/dev/null 2>&1; then
                 echo "NetSurf GTK çalıştırılıyor..." >> "${'$'}LOG"
                 exec netsurf-gtk "${'$'}@" >> "${'$'}LOG" 2>&1
             elif command -v epiphany-browser >/dev/null 2>&1 || command -v epiphany >/dev/null 2>&1; then
@@ -169,8 +193,8 @@ class DesktopManager(
                 echo "Firefox çalıştırılıyor..." >> "${'$'}LOG"
                 exec firefox "${'$'}@" >> "${'$'}LOG" 2>&1
             else
-                echo "UYARI: Sistemde hiçbir tarayıcı bulunamadı!" >> "${'$'}LOG"
-                xfce4-terminal -T "Web Tarayıcısı Kurulumu" -e "sh -c 'echo [BILGI] Sistemde henuz kurulu bir grafiksel web tarayicisi bulunamadi.; echo NetSurf GTK kurmak icin Enter tusuna basin...; read; apt-get update && apt-get install -y netsurf-gtk; echo; echo Kurulum Tamamlandi! Artik Web Tarayicisi simgesiyle acabilirsiniz.; read -p \"Kapatmak icin Enter...\"'" 2>/dev/null || true
+                echo "UYARI: Sistemde hazır grafiksel tarayıcı bulunamadı veya snap kısıtlaması var!" >> "${'$'}LOG"
+                xfce4-terminal -T "Firefox & Web Tarayıcısı" -e "sh -c 'echo [BILGI] Ubuntu snap yerine gercek Firefox deb paketi veya NetSurf kullanmalidir.; echo; echo NetSurf GTK aninda acilabilir durumda mi kontrol ediliyor...; if command -v netsurf-gtk >/dev/null 2>&1; then exec netsurf-gtk; else echo NetSurf kurmak icin Enter tusuna basin...; read; apt-get update && apt-get install -y netsurf-gtk; exec netsurf-gtk; fi'" 2>/dev/null || true
             fi
             """.trimIndent() + "\n"
         )
@@ -200,6 +224,43 @@ class DesktopManager(
         )
         browserDesktop.setExecutable(true, false)
         File(appsDir, "web-browser.desktop").writeText(browserDesktop.readText())
+
+        // Dedicated Firefox desktop icon
+        val firefoxDesktop = File(desktopDir, "Firefox.desktop")
+        firefoxDesktop.writeText(
+            """
+            [Desktop Entry]
+            Version=1.0
+            Type=Application
+            Name=Firefox Web Browser
+            Comment=Firefox İnternet Tarayıcısı
+            Exec=/usr/local/bin/x-browser-launcher %U
+            Icon=firefox
+            Terminal=false
+            Categories=Network;WebBrowser;
+            StartupNotify=true
+            """.trimIndent() + "\n"
+        )
+        firefoxDesktop.setExecutable(true, false)
+        File(appsDir, "firefox.desktop").writeText(firefoxDesktop.readText())
+
+        // Dedicated NetSurf desktop icon
+        val netsurfDesktop = File(desktopDir, "NetSurf.desktop")
+        netsurfDesktop.writeText(
+            """
+            [Desktop Entry]
+            Version=1.0
+            Type=Application
+            Name=NetSurf Tarayıcı
+            Comment=Hafif ve Hızlı Web Tarayıcısı
+            Exec=netsurf-gtk %U
+            Icon=netsurf
+            Terminal=false
+            Categories=Network;WebBrowser;
+            StartupNotify=true
+            """.trimIndent() + "\n"
+        )
+        netsurfDesktop.setExecutable(true, false)
 
         val termDesktop = File(desktopDir, "Terminal.desktop")
         termDesktop.writeText(

@@ -280,6 +280,32 @@ class UbuntuInstaller(private val context: Context) {
             val forceUnsafeIo = File(dpkgConfDir, "02_force_unsafe_io")
             forceUnsafeIo.writeText("force-unsafe-io\n")
 
+            // PERMANENT NO-SNAP POLICY (Debian/Linux Mint style)
+            // Completely block snapd and any transitional snap packages from APT
+            val aptPrefDir = File(rootfsDir, "etc/apt/preferences.d").apply { if (!exists()) mkdirs() }
+            val noSnapPref = File(aptPrefDir, "nosnap.pref")
+            noSnapPref.writeText(
+                """
+                # PRoot/Android ortamında systemd/snapd çalışmadığı için Snap kalıcı olarak engellenmiştir.
+                Package: snapd
+                Pin: release *
+                Pin-Priority: -10
+
+                Package: snapd:*
+                Pin: release *
+                Pin-Priority: -10
+                """.trimIndent() + "\n"
+            )
+
+            // Block snap autoinstall triggers
+            val noSnapConf = File(aptConfDir, "00nosnap")
+            noSnapConf.writeText(
+                """
+                # Snap paketlerini engelle
+                APT::Get::AutomaticRemove "true";
+                """.trimIndent() + "\n"
+            )
+
             val sbinDir = File(rootfsDir, "usr/sbin").apply { if (!exists()) mkdirs() }
             val policyRcD = File(sbinDir, "policy-rc.d")
             policyRcD.writeText("#!/bin/sh\nexit 101\n")

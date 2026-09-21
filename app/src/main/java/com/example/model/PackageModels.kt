@@ -74,6 +74,15 @@ object PredefinedPackages {
             approxSizeMb = 45
         ),
         UbuntuPackage(
+            id = "firefox",
+            name = "Mozilla Firefox (Debian / Gerçek DEB)",
+            category = PackageCategory.ESSENTIAL,
+            description = "Snap gerektirmeyen resmi Mozilla PPA deb paketi. PRoot ve ARM64 uyumlu tam web tarayıcısı.",
+            installPackageName = "firefox",
+            checkBinaryPath = "usr/lib/firefox/firefox",
+            approxSizeMb = 75
+        ),
+        UbuntuPackage(
             id = "netsurf",
             name = "Hızlı Web Tarayıcısı (NetSurf GTK)",
             category = PackageCategory.ESSENTIAL,

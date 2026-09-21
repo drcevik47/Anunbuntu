@@ -211,7 +211,7 @@ fun PackageManagerScreen(
                     ) {
                         BadgePill("force-unsafe-io ✓")
                         BadgePill("01_no_sandbox ✓")
-                        BadgePill("policy-rc.d ✓")
+                        BadgePill("nosnap ✓")
                     }
 
                     if (!isPRootReady) {

@@ -333,10 +333,37 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
     fun checkPackageStatuses() {
         if (!installer.isInstalled()) return
         val rootfs = installer.rootfsDir
+
+        // Auto-enforce nosnap pinning on existing rootfs
+        try {
+            val prefDir = File(rootfs, "etc/apt/preferences.d").apply { if (!exists()) mkdirs() }
+            val noSnapFile = File(prefDir, "nosnap.pref")
+            if (!noSnapFile.exists()) {
+                noSnapFile.writeText(
+                    """
+                    Package: snapd
+                    Pin: release *
+                    Pin-Priority: -10
+
+                    Package: snapd:*
+                    Pin: release *
+                    Pin-Priority: -10
+                    """.trimIndent() + "\n"
+                )
+            }
+        } catch (_: Exception) {}
+
         val newMap = mutableMapOf<String, PackageStatus>()
         for (pkg in PredefinedPackages.ALL) {
-            val binary = File(rootfs, pkg.checkBinaryPath)
-            newMap[pkg.id] = if (binary.exists()) PackageStatus.INSTALLED else PackageStatus.NOT_INSTALLED
+            val isInstalled = if (pkg.id == "firefox") {
+                val ppaBin = File(rootfs, "usr/lib/firefox/firefox")
+                val optBin = File(rootfs, "opt/firefox/firefox")
+                val usrBin = File(rootfs, "usr/bin/firefox")
+                ppaBin.exists() || optBin.exists() || (usrBin.exists() && !usrBin.readText().contains("snap"))
+            } else {
+                File(rootfs, pkg.checkBinaryPath).exists()
+            }
+            newMap[pkg.id] = if (isInstalled) PackageStatus.INSTALLED else PackageStatus.NOT_INSTALLED
         }
         _packageStatuses.value = newMap
         _isPRootReady.value = runner.prootManager.isPRootInstalled
@@ -369,7 +396,26 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
         
         viewModelScope.launch {
             _activeTab.value = 2 // Switch to terminal so user can see live apt progress
-            val aptCmd = "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y ${pkg.installPackageName}"
+            val aptCmd = if (pkg.id == "firefox") {
+                // Ubuntu 22.04 snap bypass: add mozillateam PPA and set apt pinning so it installs real deb
+                """
+                echo ">>> Mozilla PPA ve Gerçek Firefox DEB Paketi Hazırlanıyor...";
+                export DEBIAN_FRONTEND=noninteractive;
+                apt-get update && apt-get install -y software-properties-common gpg wget;
+                add-apt-repository -y ppa:mozillateam/ppa;
+                printf 'Package: *\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n' > /etc/apt/preferences.d/mozilla-firefox;
+                printf 'Package: firefox*\nPin: release o=Ubuntu*\nPin-Priority: -1\n' >> /etc/apt/preferences.d/mozilla-firefox;
+                apt-get update && apt-get install -y --allow-downgrades firefox;
+                update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/firefox 200;
+                mkdir -p /root/Desktop;
+                printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=Firefox Web Browser\nExec=firefox %%U\nIcon=firefox\nTerminal=false\nCategories=Network;WebBrowser;\n' > /root/Desktop/Firefox.desktop;
+                chmod +x /root/Desktop/Firefox.desktop;
+                echo ">>> Firefox başarıyla kuruldu ve masaüstü simgesi eklendi!"
+                """.trimIndent().replace("\n", " ")
+            } else {
+                "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y ${pkg.installPackageName}"
+            }
+
             if (!runner.isRunning) {
                 runner.startSession(viewModelScope, aptCmd)
             } else {
