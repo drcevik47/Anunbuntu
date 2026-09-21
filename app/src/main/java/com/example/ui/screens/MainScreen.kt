@@ -151,7 +151,8 @@ fun MainScreen(
                     onStartDesktop = { viewModel.startDesktop() },
                     onStopDesktop = { viewModel.stopDesktop() },
                     onGoToInstall = { viewModel.setActiveTab(1) },
-                    onOpenLogs = { viewModel.setActiveTab(5) }
+                    onOpenLogs = { viewModel.setActiveTab(5) },
+                    onFixBrowserAndFonts = { viewModel.fixBrowserAndFonts() }
                 )
                 5 -> LogViewerScreen(
                     logs = logs,

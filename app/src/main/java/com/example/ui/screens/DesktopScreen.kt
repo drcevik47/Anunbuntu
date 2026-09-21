@@ -520,6 +520,7 @@ fun DesktopScreen(
     onStopDesktop: () -> Unit,
     onGoToInstall: () -> Unit,
     onOpenLogs: () -> Unit = {},
+    onFixBrowserAndFonts: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1246,6 +1247,20 @@ fun DesktopScreen(
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
+                    }
+
+                    OutlinedButton(
+                        onClick = onFixBrowserAndFonts,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("fix_browser_fonts_button"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFB74D))
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Tarayıcı ve Fontları Onar (Sandbox & DejaVu/FreeFont)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
 

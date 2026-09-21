@@ -78,11 +78,23 @@ class DesktopManager(
             export WEBKIT_DISABLE_DMABUF_RENDERER=1
             export G_SLICE=always-malloc
             export LIBGL_ALWAYS_SOFTWARE=1
+            export NO_AT_BRIDGE=1
+            export GDK_BACKEND=x11
+            export MOZ_DISABLE_CONTENT_SANDBOX=1
+            export MOZ_DISABLE_GMP_SANDBOX=1
+            export MOZ_DISABLE_RDD_SANDBOX=1
+            export MOZ_DISABLE_SOCKET_PROCESS=1
+            export MOZ_FORCE_DISABLE_E10S=1
 
             # Start DBus session bus required by modern GTK/WebKit/Epiphany
             if command -v dbus-launch >/dev/null 2>&1; then
                 eval ${'$'}(dbus-launch --sh-syntax)
                 export DBUS_SESSION_BUS_ADDRESS
+            fi
+
+            # Update font cache in background if needed
+            if command -v fc-cache >/dev/null 2>&1; then
+                fc-cache -s 2>/dev/null &
             fi
 
             # Start XFCE4 Window Manager and Desktop Session
@@ -167,6 +179,42 @@ class DesktopManager(
             }
         } catch (_: Exception) {}
 
+        // Ensure Firefox sandbox prefs exist for PRoot compatibility
+        try {
+            val ffDirs = listOf(
+                File(rootfs, "etc/firefox-esr"),
+                File(rootfs, "etc/firefox"),
+                File(rootfs, "usr/lib/firefox-esr/defaults/pref"),
+                File(rootfs, "usr/lib/firefox/defaults/pref")
+            )
+            val ffPrefContent = """
+                // Android PRoot uyum prefs
+                pref("security.sandbox.content.level", 0);
+                pref("security.sandbox.rdd.level", 0);
+                pref("security.sandbox.socket.process.level", 0);
+                pref("browser.tabs.remote.autostart", false);
+                pref("layers.acceleration.disabled", true);
+                pref("gfx.webrender.software", true);
+            """.trimIndent() + "\n"
+            for (d in ffDirs) {
+                if (d.exists() || d.parentFile?.exists() == true) {
+                    d.mkdirs()
+                    File(d, "syspref.js").writeText(ffPrefContent)
+                }
+            }
+        } catch (_: Exception) {}
+
+        // Fix noVNC 404 package.json warning
+        try {
+            val novncDir = File(rootfs, "usr/share/novnc")
+            if (novncDir.exists()) {
+                val pkgJson = File(novncDir, "package.json")
+                if (!pkgJson.exists()) {
+                    pkgJson.writeText("""{"name": "novnc", "version": "1.4.0"}""" + "\n")
+                }
+            }
+        } catch (_: Exception) {}
+
         configureVncStartup()
 
         AppLogManager.info(LogCategory.DESKTOP, "PrepareFiles", "Masaüstü başlatma ve tarayıcı betikleri hazırlanıyor...")
@@ -194,6 +242,13 @@ class DesktopManager(
             export WEBKIT_DISABLE_DMABUF_RENDERER=1
             export G_SLICE=always-malloc
             export LIBGL_ALWAYS_SOFTWARE=1
+            export NO_AT_BRIDGE=1
+            export GDK_BACKEND=x11
+            export MOZ_DISABLE_CONTENT_SANDBOX=1
+            export MOZ_DISABLE_GMP_SANDBOX=1
+            export MOZ_DISABLE_RDD_SANDBOX=1
+            export MOZ_DISABLE_SOCKET_PROCESS=1
+            export MOZ_FORCE_DISABLE_E10S=1
 
             # Ensure DBus session bus is active
             if [ -z "${'$'}DBUS_SESSION_BUS_ADDRESS" ] && command -v dbus-launch >/dev/null 2>&1; then
@@ -203,14 +258,14 @@ class DesktopManager(
 
             # Check for Firefox / Firefox ESR (Debian official is firefox-esr)
             if command -v firefox-esr >/dev/null 2>&1; then
-                echo "Firefox ESR çalıştırılıyor..." >> "${'$'}LOG"
-                exec firefox-esr "${'$'}@" >> "${'$'}LOG" 2>&1
+                echo "Firefox ESR çalıştırılıyor (PRoot sandbox kapalı)..." >> "${'$'}LOG"
+                exec firefox-esr --no-remote "${'$'}@" >> "${'$'}LOG" 2>&1
             elif [ -x /usr/bin/firefox ] && ! grep -q "snap" /usr/bin/firefox 2>/dev/null; then
                 echo "Firefox çalıştırılıyor (/usr/bin/firefox)..." >> "${'$'}LOG"
-                exec /usr/bin/firefox "${'$'}@" >> "${'$'}LOG" 2>&1
+                exec /usr/bin/firefox --no-remote "${'$'}@" >> "${'$'}LOG" 2>&1
             elif [ -x /opt/firefox/firefox ]; then
                 echo "Firefox çalıştırılıyor (/opt/firefox/firefox)..." >> "${'$'}LOG"
-                exec /opt/firefox/firefox "${'$'}@" >> "${'$'}LOG" 2>&1
+                exec /opt/firefox/firefox --no-remote "${'$'}@" >> "${'$'}LOG" 2>&1
             elif command -v netsurf-gtk >/dev/null 2>&1; then
                 echo "NetSurf GTK çalıştırılıyor..." >> "${'$'}LOG"
                 exec netsurf-gtk "${'$'}@" >> "${'$'}LOG" 2>&1
@@ -223,10 +278,10 @@ class DesktopManager(
                 exec chromium-browser --no-sandbox --disable-gpu --disable-dev-shm-usage "${'$'}@" >> "${'$'}LOG" 2>&1
             elif command -v firefox >/dev/null 2>&1; then
                 echo "Firefox çalıştırılıyor..." >> "${'$'}LOG"
-                exec firefox "${'$'}@" >> "${'$'}LOG" 2>&1
+                exec firefox --no-remote "${'$'}@" >> "${'$'}LOG" 2>&1
             else
                 echo "UYARI: Sistemde hazır grafiksel tarayıcı bulunamadı veya snap kısıtlaması var!" >> "${'$'}LOG"
-                xfce4-terminal -T "Firefox & Web Tarayıcısı" -e "sh -c 'echo [BILGI] Ubuntu snap yerine gercek Firefox deb paketi veya NetSurf kullanmalidir.; echo; echo NetSurf GTK aninda acilabilir durumda mi kontrol ediliyor...; if command -v netsurf-gtk >/dev/null 2>&1; then exec netsurf-gtk; else echo NetSurf kurmak icin Enter tusuna basin...; read; apt-get update && apt-get install -y netsurf-gtk; exec netsurf-gtk; fi'" 2>/dev/null || true
+                xfce4-terminal -T "Firefox & Web Tarayıcısı" -e "sh -c 'echo [BILGI] Gercek Firefox deb paketi veya NetSurf kullanilabilir.; echo NetSurf GTK baslatiliyor...; if command -v netsurf-gtk >/dev/null 2>&1; then exec netsurf-gtk; else apt-get update && apt-get install -y netsurf-gtk; exec netsurf-gtk; fi'" 2>/dev/null || true
             fi
             """.trimIndent() + "\n"
         )
@@ -537,7 +592,7 @@ class DesktopManager(
                "chmod -R 755 /usr/share/debconf /var/lib/dpkg/info 2>/dev/null; " +
                "apt-get update && " +
                "apt-get install -y --no-install-recommends " +
-               "xfce4 xfce4-terminal tigervnc-standalone-server tigervnc-common novnc websockify dbus-x11 adwaita-icon-theme netsurf-gtk epiphany-browser"
+               "xfce4 xfce4-terminal tigervnc-standalone-server tigervnc-common novnc websockify dbus-x11 adwaita-icon-theme fonts-dejavu-core fonts-freefont-ttf fontconfig netsurf-gtk epiphany-browser && fc-cache -f 2>/dev/null || true"
     }
 
     fun markRunning(resolution: DesktopResolution = _selectedResolution.value) {

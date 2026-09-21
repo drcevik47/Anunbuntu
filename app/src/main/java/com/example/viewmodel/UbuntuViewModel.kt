@@ -402,32 +402,35 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _activeTab.value = 2 // Switch to terminal so user can see live apt progress
             val aptCmd = if (pkg.id == "firefox") {
+                desktopManager.prepareDesktopFiles()
                 val isDebian = File(installer.rootfsDir, "etc/debian_version").exists() && !File(installer.rootfsDir, "etc/lsb-release").exists()
                 if (isDebian) {
                     """
-                    echo ">>> Debian Resmi Firefox ESR Paketi Kuruluyor...";
+                    echo ">>> Debian Resmi Firefox ESR ve Font Paketleri Kuruluyor...";
                     export DEBIAN_FRONTEND=noninteractive;
-                    apt-get update && apt-get install -y firefox-esr;
+                    apt-get update && apt-get install -y firefox-esr fonts-dejavu-core fonts-freefont-ttf fontconfig;
+                    fc-cache -f 2>/dev/null;
                     mkdir -p /root/Desktop;
-                    printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=Firefox Web Browser\nExec=firefox-esr %%U\nIcon=firefox-esr\nTerminal=false\nCategories=Network;WebBrowser;\n' > /root/Desktop/Firefox.desktop;
+                    printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=Firefox Web Browser\nExec=/usr/local/bin/x-browser-launcher %%U\nIcon=firefox-esr\nTerminal=false\nCategories=Network;WebBrowser;\n' > /root/Desktop/Firefox.desktop;
                     chmod +x /root/Desktop/Firefox.desktop;
-                    echo ">>> Firefox ESR başarıyla kuruldu ve masaüstü simgesi eklendi!"
+                    echo ">>> Firefox ESR ve sistem fontları başarıyla kuruldu ve masaüstü simgesi eklendi!"
                     """.trimIndent().replace("\n", " ")
                 } else {
                     // Ubuntu 22.04 snap bypass: add mozillateam PPA and set apt pinning so it installs real deb
                     """
                     echo ">>> Mozilla PPA ve Gerçek Firefox DEB Paketi Hazırlanıyor...";
                     export DEBIAN_FRONTEND=noninteractive;
-                    apt-get update && apt-get install -y software-properties-common gpg wget;
+                    apt-get update && apt-get install -y software-properties-common gpg wget fonts-dejavu-core fonts-freefont-ttf fontconfig;
+                    fc-cache -f 2>/dev/null;
                     add-apt-repository -y ppa:mozillateam/ppa;
                     printf 'Package: *\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n' > /etc/apt/preferences.d/mozilla-firefox;
                     printf 'Package: firefox*\nPin: release o=Ubuntu*\nPin-Priority: -1\n' >> /etc/apt/preferences.d/mozilla-firefox;
                     apt-get update && apt-get install -y --allow-downgrades firefox;
                     update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/firefox 200;
                     mkdir -p /root/Desktop;
-                    printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=Firefox Web Browser\nExec=firefox %%U\nIcon=firefox\nTerminal=false\nCategories=Network;WebBrowser;\n' > /root/Desktop/Firefox.desktop;
+                    printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=Firefox Web Browser\nExec=/usr/local/bin/x-browser-launcher %%U\nIcon=firefox\nTerminal=false\nCategories=Network;WebBrowser;\n' > /root/Desktop/Firefox.desktop;
                     chmod +x /root/Desktop/Firefox.desktop;
-                    echo ">>> Firefox başarıyla kuruldu ve masaüstü simgesi eklendi!"
+                    echo ">>> Firefox ve sistem fontları başarıyla kuruldu ve masaüstü simgesi eklendi!"
                     """.trimIndent().replace("\n", " ")
                 }
             } else if (pkg.id == "box64") {
@@ -583,6 +586,35 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
             val stopCmd = desktopManager.getStopDesktopCommand()
             sendCommand(stopCmd)
             desktopManager.markStopped()
+        }
+    }
+
+    /**
+     * Fixes missing system fonts (DejaVu, FreeFont) and configures PRoot sandbox bypass for Firefox/browsers
+     */
+    fun fixBrowserAndFonts() {
+        if (!installer.isInstalled()) return
+        viewModelScope.launch {
+            desktopManager.prepareDesktopFiles()
+            _activeTab.value = 2 // Switch to terminal
+            val fixCmd = """
+            echo "==================================================";
+            echo ">>> TARAYICI VE FONT ONARIMI BAŞLATILDI";
+            echo ">>> Fontlar (DejaVu, FreeFont) ve PRoot Sandbox Yapılandırması Uygulanıyor...";
+            echo "==================================================";
+            export DEBIAN_FRONTEND=noninteractive;
+            apt-get update && apt-get install -y fonts-dejavu-core fonts-freefont-ttf fontconfig;
+            fc-cache -f 2>/dev/null;
+            echo "";
+            echo ">>> TEBRİKLER: Fontlar ve Tarayıcı Sandbox Ayarları Başarıyla Onarıldı!";
+            echo ">>> Masaüstü sekmesine geçip Firefox veya Web Tarayıcısını açabilirsiniz.";
+            """.trimIndent().replace("\n", " ")
+
+            if (!runner.isRunning) {
+                runner.startSession(viewModelScope, fixCmd)
+            } else {
+                sendCommand(fixCmd)
+            }
         }
     }
 
