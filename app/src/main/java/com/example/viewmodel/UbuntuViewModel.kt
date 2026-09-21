@@ -360,6 +360,8 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
                 val optBin = File(rootfs, "opt/firefox/firefox")
                 val usrBin = File(rootfs, "usr/bin/firefox")
                 ppaBin.exists() || optBin.exists() || (usrBin.exists() && !usrBin.readText().contains("snap"))
+            } else if (pkg.id == "synaptic") {
+                File(rootfs, "usr/sbin/synaptic").exists() || File(rootfs, "usr/bin/synaptic").exists()
             } else if (pkg.id == "box64") {
                 File(rootfs, "usr/local/bin/box64").exists() || File(rootfs, "usr/bin/box64").exists()
             } else {

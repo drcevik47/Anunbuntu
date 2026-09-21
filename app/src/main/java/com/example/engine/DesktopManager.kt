@@ -216,6 +216,26 @@ class DesktopManager(
         )
         launcherFile.setExecutable(true, false)
 
+        // Software Store (Synaptic) Launcher Helper with root and autoinstall fallback
+        val storeLauncher = File(localBin, "x-software-store")
+        storeLauncher.writeText(
+            """
+            #!/bin/sh
+            if [ -z "${'$'}DISPLAY" ]; then
+                export DISPLAY=:1
+            fi
+            export HOME=/root
+            export USER=root
+
+            if command -v synaptic >/dev/null 2>&1; then
+                exec synaptic "${'$'}@"
+            else
+                xfce4-terminal -T "Uygulama Mağazası (Synaptic)" -e "sh -c 'echo [UYGULAMA MAĞAZASI] Synaptic kuruluyor, lütfen bekleyin...; echo; apt-get update && apt-get install -y synaptic; echo; echo [BİLGİ] Kurulum bitti! Synaptic açılıyor...; sleep 1; exec synaptic;'" 2>/dev/null || true
+            fi
+            """.trimIndent() + "\n"
+        )
+        storeLauncher.setExecutable(true, false)
+
         // Symlink shortcuts for browser
         val epLink = File(localBin, "epiphany-browser")
         if (!epLink.exists()) {
@@ -294,6 +314,25 @@ class DesktopManager(
             """.trimIndent() + "\n"
         )
         termDesktop.setExecutable(true, false)
+
+        // Gerçek Uygulama Mağazası / Marketi (Synaptic)
+        val storeDesktop = File(desktopDir, "Software.desktop")
+        storeDesktop.writeText(
+            """
+            [Desktop Entry]
+            Version=1.0
+            Type=Application
+            Name=Uygulama Mağazası
+            Comment=Linux Uygulamalarını Arayın ve Kurun
+            Exec=/usr/local/bin/x-software-store
+            Icon=synaptic
+            Terminal=false
+            Categories=System;Settings;PackageManager;
+            StartupNotify=true
+            """.trimIndent() + "\n"
+        )
+        storeDesktop.setExecutable(true, false)
+        File(appsDir, "software-store.desktop").writeText(storeDesktop.readText())
 
         // Dosya Yöneticisi (Thunar)
         val filesDesktop = File(desktopDir, "Files.desktop")

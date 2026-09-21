@@ -164,6 +164,15 @@ object PredefinedPackages {
 
         // Masaüstü & Ofis
         UbuntuPackage(
+            id = "synaptic",
+            name = "Uygulama Mağazası (Synaptic)",
+            category = PackageCategory.DESKTOP,
+            description = "Linux için görsel uygulama mağazası. İstediğiniz tüm paketleri arayıp tek tıkla kurun.",
+            installPackageName = "synaptic",
+            checkBinaryPath = "usr/sbin/synaptic",
+            approxSizeMb = 18
+        ),
+        UbuntuPackage(
             id = "mousepad",
             name = "Mousepad Metin Düzenleyici",
             category = PackageCategory.DESKTOP,
