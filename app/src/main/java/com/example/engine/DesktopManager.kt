@@ -138,19 +138,32 @@ class DesktopManager(
             )
         }
 
-        // Ensure full Ubuntu ports repositories (main, universe, multiverse, restricted) are enabled
+        // Ensure repositories are correctly configured (Debian vs Ubuntu)
         try {
+            val isDebian = File(rootfs, "etc/debian_version").exists() && !File(rootfs, "etc/lsb-release").exists()
             val sourcesList = File(rootfs, "etc/apt/sources.list")
             val currentSources = if (sourcesList.exists()) sourcesList.readText() else ""
-            if (!currentSources.contains("universe") || !currentSources.contains("multiverse")) {
-                sourcesList.writeText(
-                    """
-                    deb http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe multiverse
-                    deb http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe multiverse
-                    deb http://ports.ubuntu.com/ubuntu-ports/ jammy-security main restricted universe multiverse
-                    deb http://ports.ubuntu.com/ubuntu-ports/ jammy-backports main restricted universe multiverse
-                    """.trimIndent() + "\n"
-                )
+            if (isDebian) {
+                if (!currentSources.contains("non-free") || !currentSources.contains("bookworm")) {
+                    sourcesList.writeText(
+                        """
+                        deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
+                        deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
+                        deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+                        """.trimIndent() + "\n"
+                    )
+                }
+            } else {
+                if (!currentSources.contains("universe") || !currentSources.contains("multiverse")) {
+                    sourcesList.writeText(
+                        """
+                        deb http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe multiverse
+                        deb http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe multiverse
+                        deb http://ports.ubuntu.com/ubuntu-ports/ jammy-security main restricted universe multiverse
+                        deb http://ports.ubuntu.com/ubuntu-ports/ jammy-backports main restricted universe multiverse
+                        """.trimIndent() + "\n"
+                    )
+                }
             }
         } catch (_: Exception) {}
 
@@ -188,8 +201,11 @@ class DesktopManager(
                 echo "DBus Başlatıldı: ${'$'}DBUS_SESSION_BUS_ADDRESS" >> "${'$'}LOG"
             fi
 
-            # Check for Firefox (supports PPA /usr/bin/firefox, /opt/firefox/firefox, or /usr/lib/firefox/firefox)
-            if [ -x /usr/bin/firefox ] && ! grep -q "snap" /usr/bin/firefox 2>/dev/null; then
+            # Check for Firefox / Firefox ESR (Debian official is firefox-esr)
+            if command -v firefox-esr >/dev/null 2>&1; then
+                echo "Firefox ESR çalıştırılıyor..." >> "${'$'}LOG"
+                exec firefox-esr "${'$'}@" >> "${'$'}LOG" 2>&1
+            elif [ -x /usr/bin/firefox ] && ! grep -q "snap" /usr/bin/firefox 2>/dev/null; then
                 echo "Firefox çalıştırılıyor (/usr/bin/firefox)..." >> "${'$'}LOG"
                 exec /usr/bin/firefox "${'$'}@" >> "${'$'}LOG" 2>&1
             elif [ -x /opt/firefox/firefox ]; then

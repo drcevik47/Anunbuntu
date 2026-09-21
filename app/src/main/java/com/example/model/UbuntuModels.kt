@@ -40,20 +40,18 @@ data class UbuntuDistro(
 }
 
 object UbuntuDistros {
-    val UBUNTU_24_04 = UbuntuDistro(
-        id = "ubuntu-24.04-arm64",
-        name = "Ubuntu 24.04 LTS",
-        codename = "Noble Numbat",
-        version = "24.04",
+    val DEBIAN_12 = UbuntuDistro(
+        id = "debian-12-arm64",
+        name = "Debian 12 (Bookworm) ⭐ Tavsiye Edilen",
+        codename = "Bookworm",
+        version = "12",
         downloadUrls = listOf(
-            "https://cdimage.ubuntu.com/ubuntu-base/releases/noble/release/ubuntu-base-24.04-base-arm64.tar.gz",
-            "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04-base-arm64.tar.gz",
-            "https://cdimage.ubuntu.com/ubuntu-base/daily/current/noble-base-arm64.tar.gz",
-            "https://mirrors.kernel.org/ubuntu-cdimage/ubuntu-base/releases/24.04/release/ubuntu-base-24.04-base-arm64.tar.gz"
+            "https://raw.githubusercontent.com/debuerreotype/docker-debian-artifacts/dist-arm64v8/bookworm/rootfs.tar.xz",
+            "https://images.linuxcontainers.org/images/debian/bookworm/arm64/default/rootfs.tar.xz"
         ),
-        approxDownloadMb = 31,
-        approxInstalledMb = 98,
-        description = "En güncel Long-Term Support (LTS) Ubuntu sürümü. ARM64 mimarisi için optimize edilmiş minimal rootfs tabanı.",
+        approxDownloadMb = 34,
+        approxInstalledMb = 95,
+        description = "Snap içermeyen saf Debian. Sıfır paket sorunu, kusursuz Synaptic market deneyimi ve tam uyumluluk.",
         isLts = true
     )
 
@@ -70,11 +68,28 @@ object UbuntuDistros {
         ),
         approxDownloadMb = 29,
         approxInstalledMb = 92,
-        description = "Maksimum paket kararlılığı ve uyumluluk sunan güvenilir LTS sürümü.",
+        description = "Ubuntu LTS sürümü.",
         isLts = true
     )
 
-    val ALL = listOf(UBUNTU_24_04, UBUNTU_22_04)
+    val UBUNTU_24_04 = UbuntuDistro(
+        id = "ubuntu-24.04-arm64",
+        name = "Ubuntu 24.04 LTS",
+        codename = "Noble Numbat",
+        version = "24.04",
+        downloadUrls = listOf(
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/noble/release/ubuntu-base-24.04-base-arm64.tar.gz",
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04-base-arm64.tar.gz",
+            "https://cdimage.ubuntu.com/ubuntu-base/daily/current/noble-base-arm64.tar.gz",
+            "https://mirrors.kernel.org/ubuntu-cdimage/ubuntu-base/releases/24.04/release/ubuntu-base-24.04-base-arm64.tar.gz"
+        ),
+        approxDownloadMb = 31,
+        approxInstalledMb = 98,
+        description = "Güncel Noble sürümü.",
+        isLts = true
+    )
+
+    val ALL = listOf(DEBIAN_12, UBUNTU_22_04, UBUNTU_24_04)
 }
 
 /**

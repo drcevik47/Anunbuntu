@@ -45,7 +45,7 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
     private val _systemInfo = MutableStateFlow(DeviceSystemHelper.getSystemInfo(application))
     val systemInfo: StateFlow<SystemInfo> = _systemInfo.asStateFlow()
 
-    private val _selectedDistro = MutableStateFlow<UbuntuDistro>(UbuntuDistros.UBUNTU_24_04)
+    private val _selectedDistro = MutableStateFlow<UbuntuDistro>(UbuntuDistros.DEBIAN_12)
     val selectedDistro: StateFlow<UbuntuDistro> = _selectedDistro.asStateFlow()
 
     private val _installState = MutableStateFlow<InstallState>(InstallState.Idle)
@@ -356,10 +356,11 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
         val newMap = mutableMapOf<String, PackageStatus>()
         for (pkg in PredefinedPackages.ALL) {
             val isInstalled = if (pkg.id == "firefox") {
+                val esrBin = File(rootfs, "usr/bin/firefox-esr")
                 val ppaBin = File(rootfs, "usr/lib/firefox/firefox")
                 val optBin = File(rootfs, "opt/firefox/firefox")
                 val usrBin = File(rootfs, "usr/bin/firefox")
-                ppaBin.exists() || optBin.exists() || (usrBin.exists() && !usrBin.readText().contains("snap"))
+                esrBin.exists() || ppaBin.exists() || optBin.exists() || (usrBin.exists() && !usrBin.readText().contains("snap"))
             } else if (pkg.id == "synaptic") {
                 File(rootfs, "usr/sbin/synaptic").exists() || File(rootfs, "usr/bin/synaptic").exists()
             } else if (pkg.id == "box64") {
@@ -401,21 +402,34 @@ class UbuntuViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _activeTab.value = 2 // Switch to terminal so user can see live apt progress
             val aptCmd = if (pkg.id == "firefox") {
-                // Ubuntu 22.04 snap bypass: add mozillateam PPA and set apt pinning so it installs real deb
-                """
-                echo ">>> Mozilla PPA ve Gerçek Firefox DEB Paketi Hazırlanıyor...";
-                export DEBIAN_FRONTEND=noninteractive;
-                apt-get update && apt-get install -y software-properties-common gpg wget;
-                add-apt-repository -y ppa:mozillateam/ppa;
-                printf 'Package: *\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n' > /etc/apt/preferences.d/mozilla-firefox;
-                printf 'Package: firefox*\nPin: release o=Ubuntu*\nPin-Priority: -1\n' >> /etc/apt/preferences.d/mozilla-firefox;
-                apt-get update && apt-get install -y --allow-downgrades firefox;
-                update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/firefox 200;
-                mkdir -p /root/Desktop;
-                printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=Firefox Web Browser\nExec=firefox %%U\nIcon=firefox\nTerminal=false\nCategories=Network;WebBrowser;\n' > /root/Desktop/Firefox.desktop;
-                chmod +x /root/Desktop/Firefox.desktop;
-                echo ">>> Firefox başarıyla kuruldu ve masaüstü simgesi eklendi!"
-                """.trimIndent().replace("\n", " ")
+                val isDebian = File(installer.rootfsDir, "etc/debian_version").exists() && !File(installer.rootfsDir, "etc/lsb-release").exists()
+                if (isDebian) {
+                    """
+                    echo ">>> Debian Resmi Firefox ESR Paketi Kuruluyor...";
+                    export DEBIAN_FRONTEND=noninteractive;
+                    apt-get update && apt-get install -y firefox-esr;
+                    mkdir -p /root/Desktop;
+                    printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=Firefox Web Browser\nExec=firefox-esr %%U\nIcon=firefox-esr\nTerminal=false\nCategories=Network;WebBrowser;\n' > /root/Desktop/Firefox.desktop;
+                    chmod +x /root/Desktop/Firefox.desktop;
+                    echo ">>> Firefox ESR başarıyla kuruldu ve masaüstü simgesi eklendi!"
+                    """.trimIndent().replace("\n", " ")
+                } else {
+                    // Ubuntu 22.04 snap bypass: add mozillateam PPA and set apt pinning so it installs real deb
+                    """
+                    echo ">>> Mozilla PPA ve Gerçek Firefox DEB Paketi Hazırlanıyor...";
+                    export DEBIAN_FRONTEND=noninteractive;
+                    apt-get update && apt-get install -y software-properties-common gpg wget;
+                    add-apt-repository -y ppa:mozillateam/ppa;
+                    printf 'Package: *\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n' > /etc/apt/preferences.d/mozilla-firefox;
+                    printf 'Package: firefox*\nPin: release o=Ubuntu*\nPin-Priority: -1\n' >> /etc/apt/preferences.d/mozilla-firefox;
+                    apt-get update && apt-get install -y --allow-downgrades firefox;
+                    update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/firefox 200;
+                    mkdir -p /root/Desktop;
+                    printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=Firefox Web Browser\nExec=firefox %%U\nIcon=firefox\nTerminal=false\nCategories=Network;WebBrowser;\n' > /root/Desktop/Firefox.desktop;
+                    chmod +x /root/Desktop/Firefox.desktop;
+                    echo ">>> Firefox başarıyla kuruldu ve masaüstü simgesi eklendi!"
+                    """.trimIndent().replace("\n", " ")
+                }
             } else if (pkg.id == "box64") {
                 // Official Box64 Debian/Ubuntu ARM64 repo
                 """

@@ -20,16 +20,22 @@ class UbuntuDownloadManager(private val context: Context) {
         .followSslRedirects(true)
         .build()
 
+    fun getArchiveFile(distro: UbuntuDistro): File {
+        val ext = if (distro.downloadUrl.endsWith(".tar.xz")) ".tar.xz" else ".tar.gz"
+        return File(context.cacheDir, "${distro.id}$ext")
+    }
+
     suspend fun downloadDistro(
         distro: UbuntuDistro,
         onProgress: (progress: Float, downloadedBytes: Long, totalBytes: Long, speedKbps: Long) -> Unit
     ): File = withContext(Dispatchers.IO) {
         val cacheDir = context.cacheDir
-        val targetFile = File(cacheDir, "${distro.id}.tar.gz")
+        val targetFile = getArchiveFile(distro)
+        val ext = if (distro.downloadUrl.endsWith(".tar.xz")) ".tar.xz" else ".tar.gz"
 
         val urlsToTry = distro.downloadUrls
         var lastException: Exception? = null
-        val tempFile = File(cacheDir, "${distro.id}.tar.gz.tmp")
+        val tempFile = File(cacheDir, "${distro.id}$ext.tmp")
 
         for ((index, currentUrl) in urlsToTry.withIndex()) {
             try {
@@ -107,12 +113,12 @@ class UbuntuDownloadManager(private val context: Context) {
     }
 
     fun getDownloadedArchive(distro: UbuntuDistro): File? {
-        val file = File(context.cacheDir, "${distro.id}.tar.gz")
+        val file = getArchiveFile(distro)
         return if (file.exists() && file.length() > 1_000_000) file else null
     }
 
     fun deleteDownloadedArchive(distro: UbuntuDistro) {
-        val file = File(context.cacheDir, "${distro.id}.tar.gz")
+        val file = getArchiveFile(distro)
         if (file.exists()) file.delete()
     }
 }

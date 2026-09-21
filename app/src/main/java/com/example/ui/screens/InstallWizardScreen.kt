@@ -198,7 +198,7 @@ fun InstallWizardScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Ubuntu ARM64 İndir ve Kur",
+                        text = "${selectedDistro.name.substringBefore(" ⭐")} İndir ve Kur",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -299,7 +299,7 @@ fun InstallWizardScreen(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "Ubuntu RootFS Çıkarılıyor...",
+                                text = "${installState.distro.name.substringBefore(" ⭐")} RootFS Çıkarılıyor...",
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
                                 fontSize = 15.sp

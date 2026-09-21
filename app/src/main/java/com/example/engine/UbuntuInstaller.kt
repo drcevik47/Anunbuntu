@@ -9,10 +9,12 @@ import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
+import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Paths
 
@@ -75,15 +77,19 @@ class UbuntuInstaller(private val context: Context) {
             rootfsDir.mkdirs()
         }
 
-        // 1. Extract tar.gz archive
+        // 1. Extract tar.gz or tar.xz archive
         var fileCount = 0
         val targetPath = rootfsDir.toPath()
 
         FileInputStream(archiveFile).use { fis ->
             BufferedInputStream(fis, 64 * 1024).use { bis ->
-                GzipCompressorInputStream(bis).use { gzis ->
-                    TarArchiveInputStream(gzis).use { tarIn ->
-                        var entry: TarArchiveEntry? = tarIn.nextEntry
+                val decompressor: InputStream = if (archiveFile.name.endsWith(".xz", ignoreCase = true)) {
+                    XZCompressorInputStream(bis)
+                } else {
+                    GzipCompressorInputStream(bis)
+                }
+                TarArchiveInputStream(decompressor).use { tarIn ->
+                    var entry: TarArchiveEntry? = tarIn.nextEntry
                         while (entry != null) {
                             if (!isActive) {
                                 throw IllegalStateException("Kurulum kullanıcı tarafından iptal edildi")
@@ -146,7 +152,6 @@ class UbuntuInstaller(private val context: Context) {
                     }
                 }
             }
-        }
 
         onProgress(fileCount, "Arşiv başarıyla çıkarıldı (${fileCount} dosya)")
 
